@@ -1,1 +1,0 @@
-step,timestamp,train_loss_total,train_loss_ce,train_loss_belief_align,train_loss_self_consistency,train_loss_model_align,val_loss,val_ce,train_ppl,train_bpc,val_ppl,val_bpc,beta_mean,beta_std,kl_mean,kl_std,mu_lr,sigma_lr,phi_lr,ffn_lr,grad_norm_total,grad_norm_mu,grad_norm_ffn,step_time,tokens_per_sec
