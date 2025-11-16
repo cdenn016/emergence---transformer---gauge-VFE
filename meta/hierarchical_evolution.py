@@ -43,6 +43,11 @@ class HierarchicalConfig:
     consensus_kl_threshold: float = 0.01
     min_cluster_size: int = 2
 
+    # Condensation behavior
+    deactivate_constituents: bool = True  # True = categorical, False = continuous flow
+    # True:  Constituents freeze when condensed (discrete emergence)
+    # False: Constituents keep evolving (continuous renormalization flow)
+
     # Observation likelihood for meta-agents
     lambda_obs_meta: float = 1.0  # Weight for constituent-based observations
 
@@ -356,7 +361,8 @@ class HierarchicalEvolutionEngine:
             new_agents = self.system.auto_detect_and_condense(
                 scale=scale,
                 kl_threshold=self.config.consensus_kl_threshold,
-                min_cluster_size=self.config.min_cluster_size
+                min_cluster_size=self.config.min_cluster_size,
+                deactivate_constituents=self.config.deactivate_constituents
             )
 
             if new_agents:
