@@ -1148,7 +1148,8 @@ class MultiScaleSystem:
     def auto_detect_and_condense(self,
                                  scale: int,
                                  kl_threshold: float = 0.01,
-                                 min_cluster_size: int = 2) -> List[HierarchicalAgent]:
+                                 min_cluster_size: int = 2,
+                                 deactivate_constituents: bool = True) -> List[HierarchicalAgent]:
         """
         Automatically detect consensus and form meta-agents.
 
@@ -1240,10 +1241,11 @@ class MultiScaleSystem:
         new_meta_agents = self.form_meta_agents_at_scale(
             source_scale=scale,
             partitions=valid_clusters,
-            deactivate_constituents=True
+            deactivate_constituents=deactivate_constituents
         )
 
-        print(f"[Auto-Condensation ζ={scale}] Detected {len(valid_clusters)} consensus clusters")
+        mode_str = "categorical (constituents frozen)" if deactivate_constituents else "continuous flow (constituents active)"
+        print(f"[Auto-Condensation ζ={scale}] Detected {len(valid_clusters)} consensus clusters ({mode_str})")
 
         return new_meta_agents
 
