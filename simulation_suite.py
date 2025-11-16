@@ -860,23 +860,30 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print("Training with emergence enabled...")
     print("-" * 70)
 
+    # Reuse adapter to avoid recreating overlaps
+    from free_energy_clean import compute_total_free_energy
+
     for step in range(N_STEPS):
-        # Compute energy BEFORE updates (like Trainer does)
+        # Get active agents
         active_agents = multi_scale_system.get_all_active_agents()
-        if len(active_agents) > 0:
-            temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
-            from free_energy_clean import compute_total_free_energy
-            energies = compute_total_free_energy(temp_system)
-            total_energy = energies.total
-        else:
-            total_energy = 0.0
+        if len(active_agents) == 0:
+            break
+
+        # Create adapter ONCE per step (reused for both energy and gradients)
+        temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
+
+        # Compute energy BEFORE updates (like Trainer does)
+        energies = compute_total_free_energy(temp_system)
+        total_energy = energies.total
+
+        # Wrapper that reuses the adapter we just created
+        def compute_grads_with_adapter(system):
+            return compute_natural_gradients(temp_system)
 
         # Evolve one step with hierarchical dynamics
-        # Note: HierarchicalEvolutionEngine uses single learning_rate
-        # Using LR_MU_Q as the base learning rate
         metrics = engine.evolve_step(
             learning_rate=LR_MU_Q,
-            compute_gradients_fn=compute_gradients_fn
+            compute_gradients_fn=compute_grads_with_adapter
         )
 
         # Convert dict metrics to scalars
