@@ -713,6 +713,10 @@ def run_training(system, output_dir: Path):
     print(f"  Observations:     {energies_initial.observations:12.6f}")
     print(f"  {'─'*70}")
     print(f"  TOTAL:            {energies_initial.total:12.6f}")
+    print(f"\n  Prior check (first 2 agents):")
+    for i in range(min(2, system.n_agents)):
+        agent = system.agents[i]
+        print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
     print(f"{'='*70}\n")
 
     history = trainer.train()
@@ -931,6 +935,10 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
             print(f"  Observations:     {energies.observations:12.6f}")
             print(f"  {'─'*70}")
             print(f"  TOTAL:            {energies.total:12.6f}")
+            print(f"\n  Prior check (first 2 agents):")
+            for i in range(min(2, len(active_agents))):
+                agent = active_agents[i]
+                print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
             print(f"{'='*70}\n")
 
         # Wrapper that reuses the adapter we just created
