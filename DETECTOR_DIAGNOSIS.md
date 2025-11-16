@@ -1,9 +1,11 @@
-# Meta-Agent Detector Issue: Diagnosis and Fix
+# Meta-Agent Detector Issue: Diagnosis and Fixes
 
 ## Problem Statement
 Meta-agent detector only triggers at early steps (0, 5) but never at later steps (10+), even though alignment appears to plummet.
 
-## Root Cause
+## Root Causes Identified
+
+### Issue 1: Detector Running But Finding Nothing
 
 The detector **IS running** at steps 10, 15, 20, etc. (the modulo timing logic is correct), but it finds **nothing to condense** because:
 
@@ -94,6 +96,40 @@ If you want the detector to trigger at step 10+, you need to either:
    - Add logic to detect when a meta-agent's constituents diverge
    - Reactivate constituents when they become misaligned
 
+### Issue 2: Model Consensus Check Blocking Condensation (CRITICAL BUG - FIXED!)
+
+**The Major Bug**: With `IDENTICAL_PRIORS = "init_copy"` or `"lock"`:
+- Models (priors) are **identical** by construction
+- But consensus detector checked **gauge-transported model KL**:
+  ```python
+  mu_p_j_t = omega_ij @ agent_j.mu_p  # Different gauge frames!
+  kl_model = KL(mu_p_i, mu_p_j_t)     # Spurious divergence!
+  ```
+- Even though models are identical, they appear divergent after transport
+- This **blocked condensation** even when beliefs were tightly aligned
+
+**Example from step 200**:
+```
+Agents {0,1,2,3} had belief KL < 0.02 (TIGHT consensus)
+But model KL ~ 2.0 after gauge transport (SPURIOUS divergence)
+→ No condensation due to failing model check
+```
+
+**The Fix**:
+1. When `identical_priors` mode is active, skip model consensus check
+2. Set `model_threshold = inf` (always passes)
+3. Consensus = belief consensus only (matches vanilla Active Inference)
+
+Now at step 200:
+```
+ℹ️  Identical priors mode - checking belief consensus only
+0↔1: belief=0.005475✓
+0↔2: belief=0.014993✓  ← Will condense!
+0↔3: belief=0.006347✓
+```
+
 ## Theory Note
 
 The detector looks for **epistemic death** (consensus), not misalignment. When "alignment plummets" (agents diverge), this actually makes condensation **less likely**, not more likely. The system is working as designed—meta-agents only form when there's strong consensus.
+
+With **identical priors** (vanilla AIF), only beliefs matter for consensus. Checking model KL after gauge transport is meaningless because it measures gauge frame differences, not true model differences.
