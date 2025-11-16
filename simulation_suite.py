@@ -707,24 +707,6 @@ def run_training(system, output_dir: Path):
 
     trainer = Trainer(system, training_cfg)
 
-    # DEBUG: Check initial energy breakdown for Path A
-    from free_energy_clean import compute_total_free_energy
-    energies_initial = compute_total_free_energy(system)
-    print(f"\n{'='*70}")
-    print(f"PATH A (Standard) - Initial Energy Breakdown")
-    print(f"{'='*70}")
-    print(f"  Self energy:      {energies_initial.self_energy:12.6f}")
-    print(f"  Belief align:     {energies_initial.belief_align:12.6f}")
-    print(f"  Prior align:      {energies_initial.prior_align:12.6f}")
-    print(f"  Observations:     {energies_initial.observations:12.6f}")
-    print(f"  {'─'*70}")
-    print(f"  TOTAL:            {energies_initial.total:12.6f}")
-    print(f"\n  Prior check (first 2 agents):")
-    for i in range(min(2, system.n_agents)):
-        agent = system.agents[i]
-        print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
-    print(f"{'='*70}\n")
-
     history = trainer.train()
 
     # Normalize history to a plain dict for saving/plotting
@@ -929,23 +911,6 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         # Compute energy BEFORE updates (like Trainer does)
         energies = compute_total_free_energy(temp_system)
         total_energy = energies.total
-
-        # DEBUG: Print detailed breakdown for first step (Path B)
-        if step == 0:
-            print(f"\n{'='*70}")
-            print(f"PATH B (Hierarchical) - Initial Energy Breakdown")
-            print(f"{'='*70}")
-            print(f"  Self energy:      {energies.self_energy:12.6f}")
-            print(f"  Belief align:     {energies.belief_align:12.6f}")
-            print(f"  Prior align:      {energies.prior_align:12.6f}")
-            print(f"  Observations:     {energies.observations:12.6f}")
-            print(f"  {'─'*70}")
-            print(f"  TOTAL:            {energies.total:12.6f}")
-            print(f"\n  Prior check (first 2 agents):")
-            for i in range(min(2, len(active_agents))):
-                agent = active_agents[i]
-                print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
-            print(f"{'='*70}\n")
 
         # Wrapper that reuses the adapter we just created
         def compute_grads_with_adapter(system):
