@@ -263,15 +263,21 @@ class HierarchicalAgent(Agent):
         weights = coherence_scores / (np.sum(coherence_scores) + 1e-10)
 
         # Compute weighted average → becomes top agent's prior
-        self.mu_p = np.zeros_like(self.mu_q)
-        self.Sigma_p = np.zeros_like(self.Sigma_q)
+        # Use temporary variables to accumulate before setting (avoid triggering setter)
+        mu_p_new = np.zeros_like(self.mu_q)
+        Sigma_p_new = np.zeros_like(self.Sigma_q)
 
         for (mu, Sigma), w in zip(transported_beliefs, weights):
-            self.mu_p += w * mu
-            self.Sigma_p += w * Sigma
+            mu_p_new += w * mu
+            Sigma_p_new += w * Sigma
 
         # Regularize to ensure SPD
-        self.Sigma_p += 1e-6 * np.eye(self.K)
+        Sigma_p_new = 0.5 * (Sigma_p_new + Sigma_p_new.T)  # Symmetrize
+        Sigma_p_new += 1e-6 * np.eye(self.K)  # Regularize
+
+        # Set once at the end (triggers Cholesky decomposition once)
+        self.mu_p = mu_p_new
+        self.Sigma_p = Sigma_p_new
 
     def generate_observations_from_constituents(self) -> Optional[np.ndarray]:
         """
