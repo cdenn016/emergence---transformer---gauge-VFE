@@ -337,6 +337,11 @@ class HierarchicalEvolutionEngine:
         """
         Check all scales for consensus and condense.
 
+        IMPORTANT: With continuous flow, newly formed meta-agents should NOT
+        be immediately checked for condensation in the same step. This prevents
+        cascading condensations where the same underlying agents create
+        meta-agents at multiple scales in one step.
+
         Returns:
             List of newly formed meta-agents
         """
@@ -345,15 +350,25 @@ class HierarchicalEvolutionEngine:
         # DIAGNOSTIC: Show detector status
         print(f"\n[Step {self.step_count}] 🔍 Consensus check (interval={self.config.consensus_check_interval})")
 
+        # Track scales to check BEFORE any condensations happen
+        # This prevents cascading: if scale 3 forms a meta at scale 4,
+        # we don't immediately check scale 4 in the same step
+        scales_to_check = sorted(self.system.agents.keys())
+
         # Check each scale (except max scale)
-        for scale in sorted(self.system.agents.keys()):
-            active_at_scale = self.system.get_active_agents_at_scale(scale)
+        for scale in scales_to_check:
+            all_active = self.system.get_active_agents_at_scale(scale, free_only=False)
+            free_active = self.system.get_active_agents_at_scale(scale, free_only=True)
             total_at_scale = len(self.system.agents[scale])
 
-            print(f"  Scale {scale}: {len(active_at_scale)}/{total_at_scale} active", end="")
+            # Show free/total (free = not in a meta-agent)
+            if len(free_active) < len(all_active):
+                print(f"  Scale {scale}: {len(free_active)} free / {len(all_active)} active / {total_at_scale} total", end="")
+            else:
+                print(f"  Scale {scale}: {len(all_active)}/{total_at_scale} active", end="")
 
-            if len(active_at_scale) < self.config.min_cluster_size:
-                print(f" → SKIP (need >={self.config.min_cluster_size})")
+            if len(free_active) < self.config.min_cluster_size:
+                print(f" → SKIP (need >={self.config.min_cluster_size} free agents)")
                 continue
 
             print(f" → checking consensus...")
@@ -375,6 +390,8 @@ class HierarchicalEvolutionEngine:
 
         if not new_meta_agents:
             print(f"  Result: No condensations this step")
+        else:
+            print(f"  Result: {len(new_meta_agents)} meta-agent(s) formed across {len(set(m.scale for m in new_meta_agents))} scale(s)")
 
         return new_meta_agents
 

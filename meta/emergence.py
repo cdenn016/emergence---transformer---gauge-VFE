@@ -1066,15 +1066,38 @@ class MultiScaleSystem:
     # System Queries
     # =========================================================================
 
-    def get_active_agents_at_scale(self, scale: int) -> List[HierarchicalAgent]:
-        """Get all active agents at a specific scale."""
-        return [a for a in self.agents[scale] if a.is_active]
+    def get_active_agents_at_scale(self, scale: int, free_only: bool = False) -> List[HierarchicalAgent]:
+        """
+        Get active agents at a specific scale.
 
-    def get_all_active_agents(self) -> List[HierarchicalAgent]:
-        """Get all active agents across all scales."""
+        Args:
+            scale: Scale to query
+            free_only: If True, only return agents NOT committed to a meta-agent
+                      (i.e., agents with parent_meta=None)
+
+        Returns:
+            List of active (and optionally free) agents
+        """
+        if free_only:
+            # Only agents not already in a meta-agent
+            return [a for a in self.agents[scale] if a.is_active and a.parent_meta is None]
+        else:
+            # All active agents (including those in meta-agents)
+            return [a for a in self.agents[scale] if a.is_active]
+
+    def get_all_active_agents(self, free_only: bool = False) -> List[HierarchicalAgent]:
+        """
+        Get all active agents across all scales.
+
+        Args:
+            free_only: If True, only return agents NOT committed to a meta-agent
+
+        Returns:
+            List of active (and optionally free) agents
+        """
         active = []
         for scale in sorted(self.agents.keys()):
-            active.extend(self.get_active_agents_at_scale(scale))
+            active.extend(self.get_active_agents_at_scale(scale, free_only=free_only))
         return active
 
     def max_scale(self) -> int:
@@ -1180,7 +1203,10 @@ class MultiScaleSystem:
         from meta.consensus import ConsensusDetector
         from math_utils.numerical_utils import kl_gaussian
 
-        agents_at_scale = self.get_active_agents_at_scale(scale)
+        # CRITICAL: Only check "free" agents (not already in a meta-agent)
+        # With continuous flow, constituents stay active but shouldn't
+        # form new meta-agents (they're committed to their parent)
+        agents_at_scale = self.get_active_agents_at_scale(scale, free_only=True)
 
         # Check if priors are identical (vanilla Active Inference mode)
         identical_priors = False
