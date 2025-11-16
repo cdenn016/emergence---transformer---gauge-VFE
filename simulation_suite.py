@@ -711,7 +711,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create hierarchical config
+    # Create hierarchical config (match Trainer learning rates!)
     hier_config = HierarchicalConfig(
         enable_top_down_priors=ENABLE_CROSS_SCALE_PRIORS,
         enable_bottom_up_obs=True,
@@ -719,7 +719,13 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         info_change_metric=INFO_METRIC,
         consensus_check_interval=CONSENSUS_CHECK_INTERVAL,
         consensus_kl_threshold=CONSENSUS_THRESHOLD,
-        min_cluster_size=MIN_CLUSTER_SIZE
+        min_cluster_size=MIN_CLUSTER_SIZE,
+        # Learning rates (match Trainer exactly!)
+        lr_mu_q=LR_MU_Q,
+        lr_sigma_q=LR_SIGMA_Q,
+        lr_mu_p=LR_MU_P,
+        lr_sigma_p=LR_SIGMA_P,
+        lr_phi=LR_PHI
     )
 
     # Create evolution engine (detector created internally)
