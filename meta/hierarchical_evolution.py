@@ -357,8 +357,8 @@ class HierarchicalEvolutionEngine:
             phi_new = agent.gauge.phi - learning_rate * grad.delta_phi
             agent.gauge.phi = retract_to_principal_ball(
                 phi_new,
-                margin=0.05,
-                mode='normalize'
+                margin=1e-2,
+                mode='mod2pi'
             )
 
         # 🔥 CRITICAL: Re-enforce support constraints after all updates
