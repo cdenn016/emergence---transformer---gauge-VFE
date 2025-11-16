@@ -212,30 +212,33 @@ class AgentConfig:
     # === All existing fields (UNCHANGED) ===
     spatial_shape: Tuple[int, ...] = ()
     K: int = 3
-       
+
     mu_scale: float = 0.2
     sigma_scale: float = 0.1
     phi_scale: float = 0.1
-    
+
     covariance_strategy: str = "smooth"
     covariance_kwargs: Optional[dict] = None
-    
+
     smooth_mean_fields: bool = True
     mean_smoothness_scale: Optional[float] = 1
-    
+
     use_identity_observation: bool = False
     observation_noise: float = 0.1
-    
+
     trust_region_sigma: float = 2e-1
     eps: float = 1e-8
-    
+
     lr_mu_q: float = 0.0
     lr_sigma_q: float = 0.0
     lr_mu_p: float = 0.0
     lr_sigma_p: float = 0.0
     lr_phi: float = 0
-    
+
     alpha: float = 1.0
+
+    # Mask configuration for field agents
+    mask_config: MaskConfig = field(default_factory=MaskConfig)
 
     def __post_init__(self):
         """Validate and fill defaults."""
