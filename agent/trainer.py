@@ -26,13 +26,14 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from pathlib import Path
 import pickle
-from retraction import retract_spd  
+from retraction import retract_spd
 from free_energy_clean import compute_total_free_energy, FreeEnergyBreakdown
-from gradients.gradient_engine import compute_natural_gradients 
+from gradients.gradient_engine import compute_natural_gradients
 from math_utils.transport_cache import add_cache_to_system, invalidate_cache_after_update
 from gradients.gauge_fields import (retract_to_principal_ball)
 from config import TrainingConfig
 from data_utils.mu_tracking import create_mu_tracker, MuCenterTracking
+from update_engine import GradientApplier
 
 
 @dataclass
@@ -147,120 +148,44 @@ class Trainer:
     def step(self) -> FreeEnergyBreakdown:
         """
         Perform one optimization step with all optimizations.
-        
+
         Returns:
             energies: Free energy breakdown after update
         """
         import time
         step_start = time.perf_counter()
-        
+
         # (1) Compute free energy
         energies = compute_total_free_energy(self.system)
-        
+
         # (2) 🚀 Compute natural gradients (PARALLEL + CACHED)
         gradients = compute_natural_gradients(self.system)
-        # trainer.py inside step(), right after computing gradients:
-        # gradients = compute_natural_gradients(self.system)
-        
+
         # --- DEBUG PRINT: gradient magnitudes (μ, Σ, φ) ---
-        
         self._debug_print_gradients(gradients)
 
-        # (3) Update all agents
-        for i, agent in enumerate(self.system.agents):
-            self._update_agent(agent, gradients[i])
-        
-        # (3.5) 🔒 Re-enforce identical priors if we're in lock mode
+        # (3) 🎯 Apply updates using shared GradientApplier
+        GradientApplier.apply_updates(self.system.agents, gradients, self.config)
+
+        # (4) 🔒 Re-enforce identical priors if in lock mode
         if getattr(self.system.config, "identical_priors", "off") == "lock":
-            # This copies a shared μ_p, L_p into all agents and invalidates caches
-            self.system._apply_identical_priors_now()
-        
-        # (4) 🗄️ Invalidate cache after parameter updates
+            GradientApplier.apply_identical_priors_lock(self.system.agents)
+
+        # (5) 🗄️ Invalidate cache after parameter updates
         invalidate_cache_after_update(self.system)
-        
-        # (5) Record history
+
+        # (6) Record history
         if self.config.save_history:
             self.history.record(self.current_step, energies, gradients, self.system)
-        
+
         self.current_step += 1
         self._step_times.append(time.perf_counter() - step_start)
-        
+
         return energies
-    
-       
-    
-    def _update_agent(self, agent, gradients):
-        """Update all parameters for one agent."""
-        enable_q   = getattr(self.config, "lambda_self", 1.0) > 0.0
-        enable_p   = getattr(self.config, "lambda_prior_align", 0.0) > 0.0
-        enable_phi = getattr(self.config, "lambda_phi", 0.0) > 0.0
-    
-        cfg = self.config
-    
-        # --------------------------
-        # 1. Update means (μ_q, μ_p)
-        # --------------------------
-        if cfg.lr_mu_q != 0.0 and gradients.delta_mu_q is not None:
-            agent.mu_q = agent.mu_q + cfg.lr_mu_q * gradients.delta_mu_q
-    
-        if cfg.lr_mu_p != 0.0 and gradients.delta_mu_p is not None:
-            agent.mu_p = agent.mu_p + cfg.lr_mu_p * gradients.delta_mu_p
-    
-        # -----------------------------------------
-        # 2. Update covariances in Σ-space (SPD GI)
-        # -----------------------------------------
-    
-        # Belief covariance Σ_q
-        if cfg.lr_sigma_q != 0.0 and gradients.delta_Sigma_q is not None:
-            Sigma_q = agent.Sigma_q
-            Delta_q = gradients.delta_Sigma_q   # natural gradient in Σ
-        
-            Sigma_q_new = retract_spd(
-                Sigma_q,
-                Delta_q,
-                step_size=cfg.lr_sigma_q,
-                trust_region=getattr(cfg, "trust_region_sigma", None),
-                max_condition=getattr(cfg, "sigma_max_condition", None),
-            )
-            agent.Sigma_q = Sigma_q_new.astype(np.float32)
-        
-        # Prior covariance Σ_p
-        if cfg.lr_sigma_p != 0.0 and gradients.delta_Sigma_p is not None:
-            Sigma_p = agent.Sigma_p
-            Delta_p = gradients.delta_Sigma_p
-        
-            Sigma_p_new = retract_spd(
-                Sigma_p,
-                Delta_p,
-                step_size=cfg.lr_sigma_p,
-                trust_region=getattr(cfg, "trust_region_sigma", None),
-                max_condition=getattr(cfg, "sigma_max_condition", None),
-            )
-            agent.Sigma_p = Sigma_p_new.astype(np.float32)
 
-    
-        # --------------------------
-        # 3. Gauge field φ (unchanged)
-        # --------------------------
-        if enable_phi:
-            
-            phi_new = agent.gauge.phi + cfg.lr_phi * gradients.delta_phi
-            agent.gauge.phi = retract_to_principal_ball(
-                phi_new,
-                margin=cfg.gauge_margin,
-                mode=cfg.retraction_mode_phi,
-            )
-    
-        # 🔥 CRITICAL: Re-enforce support constraints after all updates
-        agent.enforce_support_constraints()
-    
-        # Invalidate any cached computations
-        if hasattr(agent, 'invalidate_caches'):
-            agent.invalidate_caches()
-
-    
-    
-
+    # NOTE: _update_agent() method removed - now using GradientApplier.apply_updates()
+    # See update_engine.py for the shared update logic used by both Trainer and
+    # HierarchicalEvolutionEngine.
 
     
     def train(self, n_steps: Optional[int] = None) -> TrainingHistory:

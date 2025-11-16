@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from meta.emergence import MultiScaleSystem, HierarchicalAgent
 from retraction import retract_spd
 from gradients.gauge_fields import retract_to_principal_ball
+from update_engine import GradientApplier
 
 
 @dataclass
@@ -170,21 +171,12 @@ class HierarchicalEvolutionEngine:
             metrics['n_updates_applied'] = n_applied
 
             # CRITICAL: Match Trainer post-update operations!
-            # These ensure consistency between hierarchical and standard training
+            # Using shared GradientApplier ensures identical behavior
 
-            # (1) Re-enforce identical priors if lock mode (matches Trainer line 174-176)
+            # (1) Re-enforce identical priors if lock mode (matches Trainer)
             if hasattr(self.system, 'system_config'):
                 if getattr(self.system.system_config, "identical_priors", "off") == "lock":
-                    # Apply shared prior to all scale-0 agents (using L_p to match MultiAgentSystem!)
-                    base_agents = self.system.agents.get(0, [])
-                    if len(base_agents) > 0:
-                        mu_p_avg = sum(a.mu_p for a in base_agents) / len(base_agents)
-                        L_p_avg = sum(a.L_p for a in base_agents) / len(base_agents)
-                        for a in base_agents:
-                            a.mu_p = mu_p_avg.copy()
-                            a.L_p = L_p_avg.copy()  # Set L_p, not Sigma_p!
-                            if hasattr(a, 'invalidate_caches'):
-                                a.invalidate_caches()
+                    GradientApplier.apply_identical_priors_lock_to_scale(self.system, scale=0)
 
         # =====================================================================
         # Phase 4: Consensus Detection (Periodic)
@@ -246,8 +238,8 @@ class HierarchicalEvolutionEngine:
                 should_update = True
 
             if should_update:
-                # Apply natural gradient update
-                self._apply_single_update(agent, grad, learning_rate)
+                # Apply natural gradient update using shared GradientApplier
+                GradientApplier.apply_updates([agent], [grad], self.config)
                 n_applied += 1
 
         return n_applied
@@ -331,82 +323,9 @@ class HierarchicalEvolutionEngine:
 
         return float(info_change)
 
-    def _apply_single_update(self,
-                            agent: HierarchicalAgent,
-                            grad,
-                            learning_rate: float):
-        """
-        Apply gradient update to a single agent using SPD-aware retractions.
-
-        CRITICAL: Must use SPD retraction for covariance matrices to ensure
-        they remain positive-definite. Naive Euclidean updates can leave the
-        SPD manifold and cause numerical blow-up.
-
-        IMPORTANT: Uses different learning rates for different parameters
-        from config (lr_mu_q, lr_sigma_q, etc.) to match Trainer behavior!
-
-        Args:
-            agent: Agent to update
-            grad: Gradient object with delta_mu_q, delta_Sigma_q, delta_phi
-            learning_rate: DEPRECATED - using config learning rates instead
-        """
-        # CRITICAL: Natural gradients are ALREADY negated (descent directions)
-        # So we use ADDITION: param_new = param + lr * delta
-        # See math_utils/fisher_metric.py:146 - δμ = -Σ ∇_μ (negated!)
-
-        # Update belief mean
-        if grad.delta_mu_q is not None:
-            agent.mu_q = agent.mu_q + self.config.lr_mu_q * grad.delta_mu_q
-
-        # Update belief covariance (SPD manifold - use retraction!)
-        # CRITICAL: Uses lr_sigma_q (much smaller than lr_mu_q!)
-        if grad.delta_Sigma_q is not None:
-            Sigma_q_new = retract_spd(
-                agent.Sigma_q,
-                grad.delta_Sigma_q,
-                step_size=self.config.lr_sigma_q,
-                trust_region=None,
-                max_condition=None
-            )
-            agent.Sigma_q = Sigma_q_new.astype(np.float32)
-
-        # Priors are NEVER updated via gradients in hierarchical system!
-        # They come from either:
-        # 1. Parent meta-agents (regular hierarchy)
-        # 2. Global state (self-referential closure at top)
-        #
-        # Only update priors if top-down flow is disabled (non-hierarchical mode)
-        if not self.config.enable_top_down_priors:
-            if grad.delta_mu_p is not None:
-                agent.mu_p = agent.mu_p + self.config.lr_mu_p * grad.delta_mu_p
-
-            if grad.delta_Sigma_p is not None:
-                Sigma_p_new = retract_spd(
-                    agent.Sigma_p,
-                    grad.delta_Sigma_p,
-                    step_size=self.config.lr_sigma_p,
-                    trust_region=None,
-                    max_condition=None
-                )
-                agent.Sigma_p = Sigma_p_new.astype(np.float32)
-
-        # Update gauge field (SO(3) manifold - use retraction!)
-        if grad.delta_phi is not None:
-            phi_new = agent.gauge.phi + self.config.lr_phi * grad.delta_phi
-            agent.gauge.phi = retract_to_principal_ball(
-                phi_new,
-                margin=1e-2,
-                mode='mod2pi'
-            )
-
-        # 🔥 CRITICAL: Re-enforce support constraints after all updates
-        # (ensures fields remain zero outside support region)
-        if hasattr(agent, 'enforce_support_constraints'):
-            agent.enforce_support_constraints()
-
-        # Invalidate any cached computations that depend on parameters
-        if hasattr(agent, 'invalidate_caches'):
-            agent.invalidate_caches()
+    # NOTE: _apply_single_update() method removed - now using GradientApplier.apply_updates()
+    # See update_engine.py for the shared update logic used by both Trainer and
+    # HierarchicalEvolutionEngine. This ensures mathematical consistency.
 
     def _check_and_condense_all_scales(self) -> List:
         """
