@@ -54,6 +54,7 @@ class SystemConfig:
     lambda_prior_align:  float = 1.0
     lambda_phi:          float = 1.0
     lambda_obs:          float = 1.0
+    lambda_obs_meta:     float = 1.0  # Meta-agent observation of constituents (bottom-up coupling)
     lambda_gauge_smooth: float = 0.0
     
     kappa_beta: float          = 1.0
@@ -114,9 +115,9 @@ class SystemConfig:
         """Validate all parameters."""
         # EXISTING VALIDATION (keep this!)
         lambdas = [
-            self.lambda_self, self.lambda_belief_align, 
-            self.lambda_prior_align, self.lambda_obs, 
-            self.lambda_gauge_smooth
+            self.lambda_self, self.lambda_belief_align,
+            self.lambda_prior_align, self.lambda_obs,
+            self.lambda_obs_meta, self.lambda_gauge_smooth
         ]
         if any(lam < 0 for lam in lambdas):
             raise ValueError("All lambda weights must be non-negative")
