@@ -33,7 +33,7 @@ class HierarchicalConfig:
 
     # Timescale separation
     enable_timescale_filtering: bool = True
-    info_change_metric: str = "gradient_norm"  # "gradient_norm" or "parameter_change"
+    info_change_metric: str = "fisher_metric"  # "fisher_metric", "kl_divergence", or "gradient_norm"
 
     # Consensus detection
     consensus_check_interval: int = 10  # Steps between consensus checks
@@ -224,27 +224,75 @@ class HierarchicalEvolutionEngine:
         """
         Compute information change for timescale filtering.
 
-        ΔI ≈ ||∇μ|| + ||∇Σ|| (in bits)
+        Uses Fisher information metric on statistical manifold:
+        ΔI² = δμᵀ Σ⁻¹ δμ + tr(Σ⁻¹ δΣ Σ⁻¹ δΣ)
+
+        This respects the natural Riemannian geometry and gauge structure.
 
         Args:
             agent: Agent being updated
             grad: Gradient object
 
         Returns:
-            Information change estimate (in bits)
+            Information change estimate (in nats, convert to bits via /log(2))
         """
-        if self.config.info_change_metric == "gradient_norm":
-            # Use gradient magnitude as proxy for information change
+        if self.config.info_change_metric == "fisher_metric":
+            # Fisher information metric (gauge-aware)
+            info_sq = 0.0
+
+            # Mean contribution: δμᵀ Σ⁻¹ δμ
+            if grad.delta_mu_q is not None:
+                try:
+                    Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
+                    info_sq += grad.delta_mu_q @ Sigma_inv @ grad.delta_mu_q
+                except np.linalg.LinAlgError:
+                    # Fallback to norm if singular
+                    info_sq += np.sum(grad.delta_mu_q ** 2)
+
+            # Covariance contribution: tr(Σ⁻¹ δΣ Σ⁻¹ δΣ)
+            if grad.delta_Sigma_q is not None:
+                try:
+                    Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
+                    M = Sigma_inv @ grad.delta_Sigma_q
+                    info_sq += np.trace(M @ M)
+                except np.linalg.LinAlgError:
+                    info_sq += np.sum(grad.delta_Sigma_q ** 2) / agent.K
+
+            # Convert to nats
+            info_nats = np.sqrt(max(info_sq, 0.0))
+
+            # Convert to bits
+            info_change = info_nats / np.log(2)
+
+        elif self.config.info_change_metric == "kl_divergence":
+            # KL(q_old || q_new) - exact information change
+            # q_new = q_old - learning_rate * grad
+            # For small updates: KL ≈ 1/2 Fisher metric
+            # So use Fisher metric as fast approximation
+            info_sq = 0.0
+
+            if grad.delta_mu_q is not None:
+                try:
+                    Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
+                    info_sq += grad.delta_mu_q @ Sigma_inv @ grad.delta_mu_q
+                except:
+                    info_sq += np.sum(grad.delta_mu_q ** 2)
+
+            if grad.delta_Sigma_q is not None:
+                try:
+                    Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
+                    M = Sigma_inv @ grad.delta_Sigma_q
+                    info_sq += np.trace(M @ M) / 2
+                except:
+                    info_sq += np.sum(grad.delta_Sigma_q ** 2) / (2 * agent.K)
+
+            info_change = np.sqrt(info_sq) / np.log(2)  # bits
+
+        elif self.config.info_change_metric == "gradient_norm":
+            # Fallback: simple gradient norm (not gauge-aware)
             delta_mu = np.linalg.norm(grad.delta_mu_q) if grad.delta_mu_q is not None else 0.0
             delta_Sigma = np.linalg.norm(grad.delta_Sigma_q) if grad.delta_Sigma_q is not None else 0.0
-
-            # Convert to bits (rough approximation)
-            # ΔI ≈ log(1 + ||gradient||)
             info_change = np.log2(1.0 + delta_mu + delta_Sigma)
-
-        elif self.config.info_change_metric == "parameter_change":
-            # Would require storing previous parameters
-            info_change = 1.0  # Fallback
 
         else:
             info_change = 1.0
