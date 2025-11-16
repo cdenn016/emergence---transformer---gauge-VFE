@@ -113,11 +113,13 @@ class HierarchicalEvolutionEngine:
         }
 
         # =====================================================================
-        # Phase 1: Top-Down Prior Updates
+        # Phase 1: Prior Updates (Hierarchical + Self-Referential)
         # =====================================================================
         if self.config.enable_top_down_priors:
-            n_updated = self.system.update_cross_scale_priors()
-            metrics['n_priors_updated'] = n_updated
+            update_info = self.system.update_cross_scale_priors()
+            metrics['n_priors_from_parent'] = update_info['from_parent']
+            metrics['n_priors_from_global'] = update_info['from_global']
+            metrics['n_priors_updated'] = update_info['total']
 
         # =====================================================================
         # Phase 2: Compute Gradients
@@ -272,9 +274,13 @@ class HierarchicalEvolutionEngine:
             # Fallback: update Sigma directly (triggers L recomputation)
             agent.Sigma_q = agent.Sigma_q - learning_rate * grad.delta_Sigma_q
 
-        # Update prior (if enabled)
+        # Priors are NEVER updated via gradients in hierarchical system!
+        # They come from either:
+        # 1. Parent meta-agents (regular hierarchy)
+        # 2. Global state (self-referential closure at top)
+        #
+        # Only update priors if top-down flow is disabled (non-hierarchical mode)
         if not self.config.enable_top_down_priors:
-            # Only update priors if not being set by parent
             if grad.delta_mu_p is not None:
                 agent.mu_p = agent.mu_p - learning_rate * grad.delta_mu_p
 
@@ -384,7 +390,13 @@ class HierarchicalEvolutionEngine:
 
         msg = f"Step {metrics['step']:4d}: [{scales_str}] "
         msg += f"updated={metrics['n_updates_applied']:3d} "
-        msg += f"priors={metrics['n_priors_updated']:2d} "
+
+        # Show prior update breakdown
+        if 'n_priors_from_global' in metrics and metrics['n_priors_from_global'] > 0:
+            msg += f"priors={metrics['n_priors_updated']:2d}(↻{metrics['n_priors_from_global']}) "
+        else:
+            msg += f"priors={metrics['n_priors_updated']:2d} "
+
         msg += f"ΔI={info_mean:.3f}"
 
         if metrics['n_condensations'] > 0:
