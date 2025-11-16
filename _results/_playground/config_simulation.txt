@@ -1,0 +1,74 @@
+# Simulation Configuration
+# ============================================================
+
+[Energy]
+LAMBDA_SELF          = 1
+LAMBDA_BELIEF_ALIGN  = 1
+LAMBDA_PRIOR_ALIGN   = 0
+LAMBDA_OBS           = 0
+KAPPA_BETA           = 1
+KAPPA_GAMMA          = 1
+
+[Observations]
+D_X                  = 5
+OBS_BIAS_SCALE       = 0.5
+OBS_NOISE_SCALE      = 1
+OBS_W_SCALE          = 0.5
+OBS_R_SCALE          = 1.0
+OBS_GROUND_TRUTH_MODES = 3
+OBS_GROUND_TRUTH_AMPLITUDE = 0.5
+
+# Simulation Configuration
+# ============================================================
+
+[Experiment]
+EXPERIMENT_NAME      = _playground
+EXPERIMENT_DESC      = Multi-agent with smooth support boundaries
+SEED                 = 2
+
+[Manifold]
+SPATIAL_SHAPE        = ()
+MANIFOLD_TOPOLOGY    = periodic
+
+[Agents]
+N_AGENTS             = 5
+K_LATENT             = 11
+MU_SCALE             = 0.5
+SIGMA_SCALE          = 1.0
+PHI_SCALE            = 0.1
+
+[Support]
+SUPPORT_PATTERN      = point
+
+[Masking]
+MASK_TYPE            = gaussian
+GAUSSIAN_SIGMA       = 0.46599060178465607
+GAUSSIAN_CUTOFF_SIGMA = 3
+SMOOTH_WIDTH         = 0.1
+OVERLAP_THRESHOLD    = 0.1
+MIN_MASK_FOR_NORMAL_COV = 0.001
+OUTSIDE_COV_SCALE    = 1000.0
+USE_SMOOTH_COV_TRANSITION = False
+
+[Energy]
+LAMBDA_SELF          = 1
+LAMBDA_BELIEF_ALIGN  = 1
+LAMBDA_PRIOR_ALIGN   = 0
+LAMBDA_OBS           = 0
+KAPPA_BETA           = 1
+KAPPA_GAMMA          = 1
+
+[Training]
+N_STEPS              = 50
+LOG_EVERY            = 1
+LR_MU_Q               = 0.1
+LR_SIGMA_Q             = 0.001
+LR_MU_P                = 0.1
+LR_SIGMA_P             = 0.001
+LR_PHI               = 0.1
+
+[Diagnostics]
+RUN_INITIAL_DIAGNOSTICS = False
+RUN_FINAL_DIAGNOSTICS   = False
+SAVE_DIAGNOSTIC_PLOTS   = True
+SAVE_DIAGNOSTIC_REPORT  = False
