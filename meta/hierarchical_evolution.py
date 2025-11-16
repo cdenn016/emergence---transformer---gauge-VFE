@@ -45,6 +45,13 @@ class HierarchicalConfig:
     # Observation likelihood for meta-agents
     lambda_obs_meta: float = 1.0  # Weight for constituent-based observations
 
+    # Learning rates (must match Trainer for consistent behavior!)
+    lr_mu_q: float = 0.1
+    lr_sigma_q: float = 0.001  # Much smaller than mu!
+    lr_mu_p: float = 0.1
+    lr_sigma_p: float = 0.001  # Much smaller than mu!
+    lr_phi: float = 0.1
+
 
 class HierarchicalEvolutionEngine:
     """
@@ -204,13 +211,19 @@ class HierarchicalEvolutionEngine:
         active_agents = self.system.get_all_active_agents()
         n_applied = 0
 
+        # CRITICAL: Only apply timescale filtering when hierarchy exists!
+        # Before meta-agents form, all agents should update at every step
+        # (matching standard training behavior)
+        has_hierarchy = self.system.max_scale() > 0
+        use_filtering = self.config.enable_timescale_filtering and has_hierarchy
+
         for agent, grad in zip(active_agents, gradients):
             # Compute information change from gradient
             delta_info = self._compute_info_change(agent, grad)
             metrics['info_changes'].append(delta_info)
 
             # Check if agent should update (timescale filtering)
-            if self.config.enable_timescale_filtering:
+            if use_filtering:
                 should_update = agent.should_update(delta_info)
             else:
                 should_update = True
@@ -312,10 +325,13 @@ class HierarchicalEvolutionEngine:
         they remain positive-definite. Naive Euclidean updates can leave the
         SPD manifold and cause numerical blow-up.
 
+        IMPORTANT: Uses different learning rates for different parameters
+        from config (lr_mu_q, lr_sigma_q, etc.) to match Trainer behavior!
+
         Args:
             agent: Agent to update
             grad: Gradient object with delta_mu_q, delta_Sigma_q, delta_phi
-            learning_rate: Learning rate
+            learning_rate: DEPRECATED - using config learning rates instead
         """
         # CRITICAL: Natural gradients are ALREADY negated (descent directions)
         # So we use ADDITION: param_new = param + lr * delta
@@ -323,14 +339,15 @@ class HierarchicalEvolutionEngine:
 
         # Update belief mean
         if grad.delta_mu_q is not None:
-            agent.mu_q = agent.mu_q + learning_rate * grad.delta_mu_q
+            agent.mu_q = agent.mu_q + self.config.lr_mu_q * grad.delta_mu_q
 
         # Update belief covariance (SPD manifold - use retraction!)
+        # CRITICAL: Uses lr_sigma_q (much smaller than lr_mu_q!)
         if grad.delta_Sigma_q is not None:
             Sigma_q_new = retract_spd(
                 agent.Sigma_q,
                 grad.delta_Sigma_q,
-                step_size=learning_rate,
+                step_size=self.config.lr_sigma_q,
                 trust_region=None,
                 max_condition=None
             )
@@ -344,13 +361,13 @@ class HierarchicalEvolutionEngine:
         # Only update priors if top-down flow is disabled (non-hierarchical mode)
         if not self.config.enable_top_down_priors:
             if grad.delta_mu_p is not None:
-                agent.mu_p = agent.mu_p + learning_rate * grad.delta_mu_p
+                agent.mu_p = agent.mu_p + self.config.lr_mu_p * grad.delta_mu_p
 
             if grad.delta_Sigma_p is not None:
                 Sigma_p_new = retract_spd(
                     agent.Sigma_p,
                     grad.delta_Sigma_p,
-                    step_size=learning_rate,
+                    step_size=self.config.lr_sigma_p,
                     trust_region=None,
                     max_condition=None
                 )
@@ -358,7 +375,7 @@ class HierarchicalEvolutionEngine:
 
         # Update gauge field (SO(3) manifold - use retraction!)
         if grad.delta_phi is not None:
-            phi_new = agent.gauge.phi + learning_rate * grad.delta_phi
+            phi_new = agent.gauge.phi + self.config.lr_phi * grad.delta_phi
             agent.gauge.phi = retract_to_principal_ball(
                 phi_new,
                 margin=1e-2,
