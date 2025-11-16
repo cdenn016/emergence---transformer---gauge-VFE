@@ -317,9 +317,13 @@ class HierarchicalEvolutionEngine:
             grad: Gradient object with delta_mu_q, delta_Sigma_q, delta_phi
             learning_rate: Learning rate
         """
-        # Update belief mean (Euclidean - straightforward)
+        # CRITICAL: Natural gradients are ALREADY negated (descent directions)
+        # So we use ADDITION: param_new = param + lr * delta
+        # See math_utils/fisher_metric.py:146 - δμ = -Σ ∇_μ (negated!)
+
+        # Update belief mean
         if grad.delta_mu_q is not None:
-            agent.mu_q = agent.mu_q - learning_rate * grad.delta_mu_q
+            agent.mu_q = agent.mu_q + learning_rate * grad.delta_mu_q
 
         # Update belief covariance (SPD manifold - use retraction!)
         if grad.delta_Sigma_q is not None:
@@ -340,7 +344,7 @@ class HierarchicalEvolutionEngine:
         # Only update priors if top-down flow is disabled (non-hierarchical mode)
         if not self.config.enable_top_down_priors:
             if grad.delta_mu_p is not None:
-                agent.mu_p = agent.mu_p - learning_rate * grad.delta_mu_p
+                agent.mu_p = agent.mu_p + learning_rate * grad.delta_mu_p
 
             if grad.delta_Sigma_p is not None:
                 Sigma_p_new = retract_spd(
@@ -354,7 +358,7 @@ class HierarchicalEvolutionEngine:
 
         # Update gauge field (SO(3) manifold - use retraction!)
         if grad.delta_phi is not None:
-            phi_new = agent.gauge.phi - learning_rate * grad.delta_phi
+            phi_new = agent.gauge.phi + learning_rate * grad.delta_phi
             agent.gauge.phi = retract_to_principal_ball(
                 phi_new,
                 margin=1e-2,
