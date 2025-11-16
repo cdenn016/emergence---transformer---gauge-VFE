@@ -12,15 +12,12 @@ from simulation_suite import (
     build_agents,
     build_system,
     _GradientSystemAdapter,
-    SEED,
-    SYSTEM_CONFIG,
-    ENABLE_EMERGENCE
+    SEED
 )
 
 from free_energy_clean import compute_total_free_energy
 from gradients.gradient_engine import compute_natural_gradients
 from agent.trainer import Trainer, TrainingConfig
-from meta.multi_scale_system import MultiScaleSystem
 from update_engine import GradientApplier
 
 def compare_single_step():
@@ -106,12 +103,20 @@ def compare_single_step():
     agents = build_agents(manifold, supports, rng)
     system_hier = build_system(agents, rng)  # This creates MultiScaleSystem if ENABLE_EMERGENCE=True
 
-    # Get active agents
-    active_agents = system_hier.get_all_active_agents()
+    # Get active agents (handle both MultiScaleSystem and MultiAgentSystem)
+    if hasattr(system_hier, 'get_all_active_agents'):
+        # MultiScaleSystem
+        active_agents = system_hier.get_all_active_agents()
+        system_config = system_hier.system_config
+    else:
+        # MultiAgentSystem
+        active_agents = system_hier.agents
+        system_config = system_hier.config
+
     print(f"Active agents: {len(active_agents)}")
 
     # Create adapter
-    adapter = _GradientSystemAdapter(active_agents, system_hier.system_config)
+    adapter = _GradientSystemAdapter(active_agents, system_config)
 
     # Initial energy
     E0_hier = compute_total_free_energy(adapter)
@@ -131,7 +136,7 @@ def compare_single_step():
     GradientApplier.apply_updates(active_agents, grads_hier, config)
 
     # Apply identical priors lock if configured
-    if system_hier.system_config.identical_priors == "lock":
+    if system_config.identical_priors == "lock":
         GradientApplier.apply_identical_priors_lock(active_agents)
         print("  Applied identical_priors lock")
 
