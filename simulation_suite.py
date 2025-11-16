@@ -703,7 +703,6 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     Agents form meta-agents automatically through consensus detection.
     """
     from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
-    from meta.consensus import ConsensusDetector
     from gradients.gradient_engine import compute_natural_gradients
 
     print(f"\n{'='*70}")
@@ -719,18 +718,12 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         enable_timescale_filtering=ENABLE_TIMESCALE_SEP,
         info_change_metric=INFO_METRIC,
         consensus_check_interval=CONSENSUS_CHECK_INTERVAL,
-        consensus_kl_threshold=CONSENSUS_THRESHOLD
+        consensus_kl_threshold=CONSENSUS_THRESHOLD,
+        min_cluster_size=MIN_CLUSTER_SIZE
     )
 
-    # Create consensus detector
-    detector = ConsensusDetector(
-        belief_threshold=CONSENSUS_THRESHOLD,
-        model_threshold=CONSENSUS_THRESHOLD,
-        use_symmetric_kl=True
-    )
-
-    # Create evolution engine
-    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config, detector)
+    # Create evolution engine (detector created internally)
+    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config)
 
     print(f"  Steps              : {N_STEPS}")
     print(f"  Consensus check    : every {CONSENSUS_CHECK_INTERVAL} steps")
