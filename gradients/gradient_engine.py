@@ -162,6 +162,89 @@ def compute_observation_gradients(system, agent) -> AgentGradients:
     )
 
 
+def compute_meta_observation_gradients(system, agent) -> AgentGradients:
+    """
+    Compute gradients for meta-agent observing constituents (BOTTOM-UP COUPLING).
+
+    For meta-agents with constituents, this implements the observation
+    likelihood where the meta-agent "observes" the renormalized state
+    of its constituents:
+
+        o_meta = weighted_average({q_constituent_i})
+        E_obs_meta = λ * ||o_meta - μ_q_meta||² / (2R²)
+
+    This completes the bidirectional renormalization group flow:
+        - Top-down: Constituents get priors from meta-agent (update_prior_from_parent)
+        - Bottom-up: Meta-agent observes constituents (this gradient)
+
+    Like phonons tracking atom displacements in solid-state physics!
+
+    Args:
+        system: MultiScaleSystem with compute_observation_likelihood_meta method
+        agent: Meta-agent (must have agent.is_meta=True and len(agent.constituents)>0)
+
+    Returns:
+        gradients: AgentGradients pulling meta-agent toward constituent consensus
+
+    Physics:
+        In a crystal, phonons (collective modes) track atom motion.
+        Here, meta-agents (collective beliefs) track constituent beliefs.
+    """
+    spatial_shape = agent.support.base_manifold.shape
+    K = agent.K
+
+    # Zero gradients for non-meta-agents or meta-agents without constituents
+    if not (hasattr(agent, 'is_meta') and agent.is_meta and len(agent.constituents) > 0):
+        return AgentGradients(
+            grad_mu_q=np.zeros((*spatial_shape, K), dtype=np.float32),
+            grad_Sigma_q=np.zeros((*spatial_shape, K, K), dtype=np.float32),
+            grad_mu_p=np.zeros((*spatial_shape, K), dtype=np.float32),
+            grad_Sigma_p=np.zeros((*spatial_shape, K, K), dtype=np.float32),
+            grad_phi=np.zeros((*spatial_shape, 3), dtype=np.float32),
+        )
+
+    # Generate synthetic observation from constituents
+    o_meta = agent.generate_observations_from_constituents()
+
+    # Get config
+    if hasattr(system, 'system_config'):
+        config = system.system_config
+    else:
+        config = system.config
+
+    lambda_obs_meta = getattr(config, 'lambda_obs_meta', 1.0)
+
+    if lambda_obs_meta == 0:
+        # Coupling disabled
+        return AgentGradients(
+            grad_mu_q=np.zeros((*spatial_shape, K), dtype=np.float32),
+            grad_Sigma_q=np.zeros((*spatial_shape, K, K), dtype=np.float32),
+            grad_mu_p=np.zeros((*spatial_shape, K), dtype=np.float32),
+            grad_Sigma_p=np.zeros((*spatial_shape, K, K), dtype=np.float32),
+            grad_phi=np.zeros((*spatial_shape, 3), dtype=np.float32),
+        )
+
+    # Observation noise scale (from emergence.py:1143)
+    # Using same R_scale as in compute_observation_likelihood_meta
+    R_scale = getattr(config, 'obs_R_scale', 1.0)
+
+    # Gradient: ∂E/∂μ_q = λ * (μ_q - o_meta) / R²
+    # (Pulls meta-agent belief toward constituent consensus)
+    residual = agent.mu_q - o_meta
+    grad_mu_q = lambda_obs_meta * residual / (R_scale ** 2)
+
+    # No covariance gradient for this simple observation model
+    # (Could add if we want meta-agent uncertainty to track constituent spread)
+    grad_Sigma_q = np.zeros((*spatial_shape, K, K), dtype=np.float32)
+
+    return AgentGradients(
+        grad_mu_q=grad_mu_q,
+        grad_Sigma_q=grad_Sigma_q,
+        grad_mu_p=np.zeros((*spatial_shape, K), dtype=np.float32),
+        grad_Sigma_p=np.zeros((*spatial_shape, K, K), dtype=np.float32),
+        grad_phi=np.zeros((*spatial_shape, 3), dtype=np.float32),
+    )
+
 
 # =============================================================================
 # Gradient Term 5: Softmax Coupling (∂β/∂θ)·KL and (∂γ/∂θ)·KL
@@ -1199,10 +1282,18 @@ def testing_compute_system_gradients(system) -> List[AgentGradients]:
     # (4) Observations
     for i in range(n_agents):
         obs_grads = compute_observation_gradients(system, system.agents[i])
-        
+
         total_gradients[i].grad_mu_q += obs_grads.grad_mu_q
         total_gradients[i].grad_Sigma_q += obs_grads.grad_Sigma_q
-    
+
+    # (4b) Meta-agent constituent observations (BOTTOM-UP COUPLING!)
+    # This completes the renormalization group flow
+    for i in range(n_agents):
+        meta_obs_grads = compute_meta_observation_gradients(system, system.agents[i])
+
+        total_gradients[i].grad_mu_q += meta_obs_grads.grad_mu_q
+        total_gradients[i].grad_Sigma_q += meta_obs_grads.grad_Sigma_q
+
     # (5) Softmax coupling gradients: (∂β/∂θ)·KL for beliefs
     for i in range(n_agents):
         softmax_belief_grads = compute_softmax_coupling_gradients_belief(system, i)
