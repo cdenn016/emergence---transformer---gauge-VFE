@@ -663,7 +663,8 @@ class _GradientSystemAdapter:
         """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
         neighbors = []
         for j in range(self.n_agents):
-            if j != agent_idx and self._overlaps.get((agent_idx, j), True):
+            # CRITICAL: Default to False (no overlap) like MultiAgentSystem.has_overlap
+            if j != agent_idx and self._overlaps.get((agent_idx, j), False):
                 neighbors.append(j)
         return neighbors
 
