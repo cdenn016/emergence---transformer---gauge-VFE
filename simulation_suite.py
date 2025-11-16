@@ -509,14 +509,16 @@ def build_system(agents, rng: np.random.Generator):
         if system_cfg.identical_priors in ("init_copy", "lock"):
             base_agents = system.agents[0]  # Scale 0 agents
             if len(base_agents) > 0:
-                # Compute shared prior from all base agents
+                # Compute shared prior from all base agents (using L_p to match MultiAgentSystem!)
                 mu_p_sum = sum(a.mu_p for a in base_agents) / len(base_agents)
-                Sigma_p_sum = sum(a.Sigma_p for a in base_agents) / len(base_agents)
+                L_p_sum = sum(a.L_p for a in base_agents) / len(base_agents)
 
-                # Apply to all base agents
+                # Apply to all base agents (set L_p, not Sigma_p, to match MultiAgentSystem!)
                 for a in base_agents:
                     a.mu_p = mu_p_sum.copy()
-                    a.Sigma_p = Sigma_p_sum.copy()
+                    a.L_p = L_p_sum.copy()
+                    if hasattr(a, 'invalidate_caches'):
+                        a.invalidate_caches()
 
         print(f"  Created MultiScaleSystem with {len(system.agents[0])} base agents")
     else:

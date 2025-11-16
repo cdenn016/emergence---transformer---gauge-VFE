@@ -175,14 +175,14 @@ class HierarchicalEvolutionEngine:
             # (1) Re-enforce identical priors if lock mode (matches Trainer line 174-176)
             if hasattr(self.system, 'system_config'):
                 if getattr(self.system.system_config, "identical_priors", "off") == "lock":
-                    # Apply shared prior to all scale-0 agents
+                    # Apply shared prior to all scale-0 agents (using L_p to match MultiAgentSystem!)
                     base_agents = self.system.agents.get(0, [])
                     if len(base_agents) > 0:
                         mu_p_avg = sum(a.mu_p for a in base_agents) / len(base_agents)
-                        Sigma_p_avg = sum(a.Sigma_p for a in base_agents) / len(base_agents)
+                        L_p_avg = sum(a.L_p for a in base_agents) / len(base_agents)
                         for a in base_agents:
                             a.mu_p = mu_p_avg.copy()
-                            a.Sigma_p = Sigma_p_avg.copy()
+                            a.L_p = L_p_avg.copy()  # Set L_p, not Sigma_p!
                             if hasattr(a, 'invalidate_caches'):
                                 a.invalidate_caches()
 
