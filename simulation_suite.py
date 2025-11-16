@@ -887,27 +887,15 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     from free_energy_clean import compute_total_free_energy
 
     # 🚀 CACHE: Create adapter once, reuse across steps (only update agent list)
-    cached_adapter = None
-    last_agent_count = 0
-
+    # DISABLED FOR DEBUGGING - recreate every step
     for step in range(N_STEPS):
         # Get active agents
         active_agents = multi_scale_system.get_all_active_agents()
         if len(active_agents) == 0:
             break
 
-        # OPTIMIZATION: Reuse adapter if agent count unchanged (no condensation)
-        # Only recreate when meta-agents form (changes neighbor relationships)
-        if cached_adapter is None or len(active_agents) != last_agent_count:
-            temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
-            cached_adapter = temp_system
-            last_agent_count = len(active_agents)
-            if step > 0:
-                print(f"  [Step {step}] Adapter refreshed (n_agents: {last_agent_count})")
-        else:
-            # Reuse cached adapter, just update agent list
-            temp_system = cached_adapter
-            temp_system.agents = active_agents
+        # Create fresh adapter every step (for debugging)
+        temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
 
         # Compute energy BEFORE updates (like Trainer does)
         energies = compute_total_free_energy(temp_system)
