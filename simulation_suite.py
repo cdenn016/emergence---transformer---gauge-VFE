@@ -875,18 +875,9 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         # Create adapter ONCE per step (reused for both energy and gradients)
         temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
 
-        # DEBUG: Print adapter details on first step
-        if step == 0:
-            print(f"[DEBUG] Adapter: n_agents={temp_system.n_agents}")
-            print(f"[DEBUG] Config: lambda_self={temp_system.config.lambda_self}, lambda_belief={temp_system.config.lambda_belief_align}")
-            print(f"[DEBUG] Active agents: {[a.agent_id for a in active_agents[:3]]}")  # First 3
-
         # Compute energy BEFORE updates (like Trainer does)
         energies = compute_total_free_energy(temp_system)
         total_energy = energies.total
-
-        if step == 0:
-            print(f"[DEBUG] Energy breakdown: self={energies.self_energy:.4f}, belief={energies.belief_align:.4f}, total={energies.total:.4f}")
 
         # Wrapper that reuses the adapter we just created
         def compute_grads_with_adapter(system):
