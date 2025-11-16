@@ -398,20 +398,40 @@ def plot_update_statistics(history: Dict, output_path: Optional[Path] = None):
 # Main
 # =============================================================================
 
+def find_most_recent_run(results_dir: Path = Path("_results")) -> Optional[Path]:
+    """Find most recent run directory with hierarchical_history files."""
+    if not results_dir.exists():
+        return None
+
+    # Find all directories with hierarchical_history.pkl
+    candidates = []
+    for subdir in results_dir.iterdir():
+        if subdir.is_dir():
+            if (subdir / "hierarchical_history.pkl").exists():
+                candidates.append(subdir)
+
+    if not candidates:
+        return None
+
+    # Return most recently modified
+    return max(candidates, key=lambda p: (p / "hierarchical_history.pkl").stat().st_mtime)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Hierarchical Multi-Scale Analysis Suite",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  python hierarchical_analysis_suite.py                              # Auto-detect latest run
+  python hierarchical_analysis_suite.py --all                        # All plots, latest run
   python hierarchical_analysis_suite.py --run-dir _results/_playground
-  python hierarchical_analysis_suite.py --run-dir _results/_playground --all
-  python hierarchical_analysis_suite.py --run-dir _results/_playground --plot overview
+  python hierarchical_analysis_suite.py --run-dir _results/_playground --all --save
         """
     )
 
-    parser.add_argument('--run-dir', type=str, required=True,
-                       help='Path to run directory containing hierarchical_history files')
+    parser.add_argument('--run-dir', type=str, default=None,
+                       help='Path to run directory (default: auto-detect latest)')
     parser.add_argument('--plot', type=str, choices=['overview', 'condensation', 'scales', 'updates'],
                        help='Generate specific plot (default: overview)')
     parser.add_argument('--all', action='store_true',
@@ -421,8 +441,21 @@ Examples:
 
     args = parser.parse_args()
 
+    # Auto-detect run directory if not specified
+    if args.run_dir is None:
+        print("🔍 Auto-detecting most recent run...\n")
+        run_dir = find_most_recent_run()
+
+        if run_dir is None:
+            print("❌ No hierarchical runs found in _results/")
+            print("\nRun a hierarchical simulation first, or specify --run-dir")
+            return
+
+        print(f"✓ Found: {run_dir}\n")
+    else:
+        run_dir = Path(args.run_dir)
+
     # Load data
-    run_dir = Path(args.run_dir)
     if not run_dir.exists():
         print(f"❌ Directory not found: {run_dir}")
         return

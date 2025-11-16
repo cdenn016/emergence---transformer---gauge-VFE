@@ -11,6 +11,10 @@ Tools for analyzing and visualizing hierarchical meta-agent emergence.
 Lightweight text-based analysis that works without numpy/matplotlib.
 
 ```bash
+# Click to run - auto-detects latest run in _results/
+python hierarchical_report.py
+
+# Or specify a directory
 python hierarchical_report.py _results/_playground
 ```
 
@@ -33,20 +37,22 @@ python hierarchical_report.py _results/_playground
 Comprehensive visualization toolkit with matplotlib plots.
 
 ```bash
-# Quick overview (default)
+# Click to run - auto-detects latest run, shows overview
+python hierarchical_analysis_suite.py
+
+# Generate all plots from latest run
+python hierarchical_analysis_suite.py --all
+
+# Save plots instead of displaying
+python hierarchical_analysis_suite.py --all --save
+
+# Specify a run directory
 python hierarchical_analysis_suite.py --run-dir _results/_playground
 
-# Generate all plots
-python hierarchical_analysis_suite.py --run-dir _results/_playground --all
-
-# Save plots to PNG files
-python hierarchical_analysis_suite.py --run-dir _results/_playground --all --save
-
 # Specific plot types
-python hierarchical_analysis_suite.py --run-dir _results/_playground --plot overview
-python hierarchical_analysis_suite.py --run-dir _results/_playground --plot condensation
-python hierarchical_analysis_suite.py --run-dir _results/_playground --plot scales
-python hierarchical_analysis_suite.py --run-dir _results/_playground --plot updates
+python hierarchical_analysis_suite.py --plot condensation
+python hierarchical_analysis_suite.py --plot scales
+python hierarchical_analysis_suite.py --plot updates
 ```
 
 **Plot Types**:
@@ -119,15 +125,17 @@ The hierarchical history contains:
 
 ## Quick Start
 
-### Example: Analyze a run
+### Example: Analyze the latest run (click to run!)
 
 ```bash
-# 1. Quick text summary
-python hierarchical_report.py _results/_playground
+# 1. Quick text summary (zero dependencies, auto-detects latest)
+python hierarchical_report.py
 
-# 2. Generate all visualizations (if you have matplotlib)
-python hierarchical_analysis_suite.py --run-dir _results/_playground --all --save
+# 2. Generate all visualizations (requires matplotlib)
+python hierarchical_analysis_suite.py --all --save
 ```
+
+**That's it!** Both tools auto-detect the most recent run in `_results/`.
 
 ### Example Output Files
 

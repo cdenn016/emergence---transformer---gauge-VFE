@@ -207,13 +207,40 @@ def print_report(history: dict, run_dir: Path):
     print("=" * 80)
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python hierarchical_report.py <run_dir>")
-        print("Example: python hierarchical_report.py _results/_playground")
-        sys.exit(1)
+def find_most_recent_run(results_dir: Path = Path("_results")) -> Path:
+    """Find most recent run directory with hierarchical_history.pkl."""
+    if not results_dir.exists():
+        return None
 
-    run_dir = Path(sys.argv[1])
+    # Find all directories with hierarchical_history.pkl
+    candidates = []
+    for subdir in results_dir.iterdir():
+        if subdir.is_dir():
+            if (subdir / "hierarchical_history.pkl").exists():
+                candidates.append(subdir)
+
+    if not candidates:
+        return None
+
+    # Return most recently modified
+    return max(candidates, key=lambda p: (p / "hierarchical_history.pkl").stat().st_mtime)
+
+
+def main():
+    # Auto-detect run directory if not specified
+    if len(sys.argv) < 2:
+        print("🔍 Auto-detecting most recent run...\n")
+        run_dir = find_most_recent_run()
+
+        if run_dir is None:
+            print("❌ No hierarchical runs found in _results/")
+            print("\nUsage: python hierarchical_report.py [run_dir]")
+            print("Example: python hierarchical_report.py _results/_playground")
+            sys.exit(1)
+
+        print(f"✓ Found: {run_dir}\n")
+    else:
+        run_dir = Path(sys.argv[1])
 
     if not run_dir.exists():
         print(f"❌ Directory not found: {run_dir}")
