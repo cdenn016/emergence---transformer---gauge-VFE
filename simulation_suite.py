@@ -81,8 +81,8 @@ ENABLE_EMERGENCE       = True     # Enable automatic meta-agent formation
 CONSENSUS_THRESHOLD    = 0.05     # KL threshold for epistemic death
 CONSENSUS_CHECK_INTERVAL = 5      # Check for consensus every N steps
 MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
-ENABLE_CROSS_SCALE_PRIORS = True  # Top-down prior propagation
-ENABLE_TIMESCALE_SEP   = True     # Timescale separation (τ_ζ = 10^ζ bits)
+ENABLE_CROSS_SCALE_PRIORS = False  # Top-down prior propagation (DISABLED for now)
+ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
 
 
@@ -504,6 +504,19 @@ def build_system(agents, rng: np.random.Generator):
             h_agent.Sigma_p = agent.Sigma_p.copy()
             if hasattr(agent, 'gauge'):
                 h_agent.gauge.phi = agent.gauge.phi.copy()
+
+        # Apply identical priors if configured (matches MultiAgentSystem behavior)
+        if system_cfg.identical_priors in ("init_copy", "lock"):
+            base_agents = system.agents[0]  # Scale 0 agents
+            if len(base_agents) > 0:
+                # Compute shared prior from all base agents
+                mu_p_sum = sum(a.mu_p for a in base_agents) / len(base_agents)
+                Sigma_p_sum = sum(a.Sigma_p for a in base_agents) / len(base_agents)
+
+                # Apply to all base agents
+                for a in base_agents:
+                    a.mu_p = mu_p_sum.copy()
+                    a.Sigma_p = Sigma_p_sum.copy()
 
         print(f"  Created MultiScaleSystem with {len(system.agents[0])} base agents")
     else:
