@@ -424,7 +424,7 @@ class MultiScaleSystem:
     def form_meta_agents_at_scale(self,
                                   source_scale: int,
                                   partitions: List[List[int]],
-                                  deactivate_constituents: bool = True) -> List[HierarchicalAgent]:
+                                  deactivate_constituents: bool = False) -> List[HierarchicalAgent]:
         """
         Form meta-agents at scale ζ+1 from partitions at scale ζ.
 
@@ -432,16 +432,28 @@ class MultiScaleSystem:
             source_scale: Scale ζ of constituents
             partitions: List of constituent clusters (local indices at source_scale)
                        Each cluster becomes one meta-agent at scale ζ+1
-            deactivate_constituents: Mark constituents as inactive after condensation
+            deactivate_constituents: Whether to freeze constituents (default False)
+                False (default): Continuous flow - constituents keep evolving
+                                 Like atoms in proteins - lower scales don't freeze!
+                                 Meta-agent tracks renormalized statistics
+                True: Categorical - constituents frozen (computational efficiency)
 
         Returns:
             List of newly formed meta-agents
 
+        Physical Intuition:
+            With continuous flow (default), emergence is like phase transitions in
+            physics - water molecules don't stop moving when ice forms, they just
+            organize into a crystal lattice. The molecules (constituents) keep
+            evolving, while the lattice (meta-agent) tracks the renormalized order.
+
         Example:
             # Condense scale-0 agents [0,1,2] and [3,4] into two scale-1 meta-agents
+            # Constituents remain active and evolving
             system.form_meta_agents_at_scale(
                 source_scale=0,
-                partitions=[[0, 1, 2], [3, 4]]
+                partitions=[[0, 1, 2], [3, 4]],
+                deactivate_constituents=False  # Default: continuous flow
             )
         """
         target_scale = source_scale + 1
@@ -1149,7 +1161,7 @@ class MultiScaleSystem:
                                  scale: int,
                                  kl_threshold: float = 0.01,
                                  min_cluster_size: int = 2,
-                                 deactivate_constituents: bool = True) -> List[HierarchicalAgent]:
+                                 deactivate_constituents: bool = False) -> List[HierarchicalAgent]:
         """
         Automatically detect consensus and form meta-agents.
 
@@ -1272,7 +1284,10 @@ class MultiScaleSystem:
             deactivate_constituents=deactivate_constituents
         )
 
-        mode_str = "categorical (constituents frozen)" if deactivate_constituents else "continuous flow (constituents active)"
+        if deactivate_constituents:
+            mode_str = "categorical - constituents frozen"
+        else:
+            mode_str = "continuous flow - constituents evolving 🌊"
         print(f"[Auto-Condensation ζ={scale}] Detected {len(valid_clusters)} consensus clusters ({mode_str})")
 
         return new_meta_agents
