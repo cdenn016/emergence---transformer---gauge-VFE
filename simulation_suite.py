@@ -773,7 +773,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         CRITICAL: Must respect spatial overlaps to match standard training!
         """
         def __init__(self, agents_list, system_config):
-            from math_utils.so3_utils import compute_transport
+            from math_utils.transport import compute_transport
             import numpy as np
 
             self.agents = agents_list  # List of active agents
