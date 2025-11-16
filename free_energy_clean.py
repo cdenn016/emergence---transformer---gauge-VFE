@@ -411,60 +411,96 @@ def expected_log_likelihood_gaussian(
 
    
 def compute_total_free_energy(system) -> FreeEnergyBreakdown:
-    
+
     """
     Compute complete free energy functional for multi-agent system.
-    
+
     Returns all energy components separately for analysis.
-    
+
     Args:
-        system: MultiAgentSystem instance
-    
+        system: MultiAgentSystem or MultiScaleSystem instance
+
     Returns:
         breakdown: FreeEnergyBreakdown with all components
-    
+
     Usage:
         >>> energies = compute_total_free_energy(system)
         >>> print(f"Total energy: {energies.total:.4f}")
         >>> print(f"Self-coupling: {energies.self_energy:.4f}")
     """
-    
-    
+
+
     E_self = 0.0
     E_belief = 0.0
     E_prior = 0.0
     E_obs = 0.0
+    E_obs_meta = 0.0  # Meta-agent observation of constituents (bottom-up coupling)
+
+    # Get config (handle both system types)
+    if hasattr(system, 'system_config'):
+        config = system.system_config
+    else:
+        config = system.config
+
+    # Get agent list (handle MultiScaleSystem vs MultiAgentSystem)
+    if hasattr(system, 'get_all_active_agents'):
+        # MultiScaleSystem
+        agents = system.get_all_active_agents()
+    else:
+        # MultiAgentSystem
+        agents = system.agents
 
     # (1) Self-coupling
-    for agent in system.agents:
-        E_self += compute_self_energy(agent, lambda_self=system.config.lambda_self)
+    for agent in agents:
+        E_self += compute_self_energy(agent, lambda_self=config.lambda_self)
 
     # (2) Belief alignment
-    if system.config.has_belief_alignment:
-        for i in range(system.n_agents):
-            E_belief += compute_belief_alignment_energy(system, i)
+    if config.has_belief_alignment:
+        # For MultiScaleSystem, use agents list; for MultiAgentSystem, use range
+        if hasattr(system, 'get_all_active_agents'):
+            # MultiScaleSystem - iterate agents directly
+            for i, agent in enumerate(agents):
+                E_belief += compute_belief_alignment_energy(system, i)
+        else:
+            # MultiAgentSystem - use agent indices
+            for i in range(system.n_agents):
+                E_belief += compute_belief_alignment_energy(system, i)
 
     # (3) Prior alignment
-    if system.config.has_prior_alignment:
-        for i in range(system.n_agents):
-            E_prior += compute_prior_alignment_energy(system, i)
+    if config.has_prior_alignment:
+        if hasattr(system, 'get_all_active_agents'):
+            for i, agent in enumerate(agents):
+                E_prior += compute_prior_alignment_energy(system, i)
+        else:
+            for i in range(system.n_agents):
+                E_prior += compute_prior_alignment_energy(system, i)
 
-    # (4) Observations
-    if system.config.has_observations:
-        for agent in system.agents:
+    # (4) Observations (regular agents)
+    if config.has_observations:
+        for agent in agents:
             E_obs += compute_observation_energy(
                 system,
                 agent,
-                lambda_obs=system.config.lambda_obs,
+                lambda_obs=config.lambda_obs,
             )
 
-    E_total = E_self + E_belief + E_prior + E_obs
+    # (5) Meta-agent constituent observations (BOTTOM-UP COUPLING!)
+    # This completes the renormalization group flow
+    if hasattr(system, 'compute_observation_likelihood_meta'):
+        lambda_obs_meta = getattr(config, 'lambda_obs_meta', 0.0)
+        if lambda_obs_meta > 0:
+            for agent in agents:
+                # Only meta-agents observe their constituents
+                if hasattr(agent, 'is_meta') and agent.is_meta and len(agent.constituents) > 0:
+                    E_obs_meta += lambda_obs_meta * system.compute_observation_likelihood_meta(agent)
+
+    E_total = E_self + E_belief + E_prior + E_obs + E_obs_meta
 
     return FreeEnergyBreakdown(
         self_energy=E_self,
         belief_align=E_belief,
         prior_align=E_prior,
-        observations=E_obs,
+        observations=E_obs + E_obs_meta,  # Combine regular + meta observations
         total=E_total,
     )
 
