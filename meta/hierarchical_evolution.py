@@ -178,9 +178,10 @@ class HierarchicalEvolutionEngine:
             # CRITICAL: Match Trainer post-update operations!
             # Using shared GradientApplier ensures identical behavior
 
-            # (1) Re-enforce identical priors if lock mode (matches Trainer)
+            # (1) Re-enforce identical priors if lock or init_copy mode (matches Trainer)
             if hasattr(self.system, 'system_config'):
-                if getattr(self.system.system_config, "identical_priors", "off") == "lock":
+                identical_priors_mode = getattr(self.system.system_config, "identical_priors", "off")
+                if identical_priors_mode in ("lock", "init_copy"):
                     GradientApplier.apply_identical_priors_lock_to_scale(self.system, scale=0)
 
         # =====================================================================

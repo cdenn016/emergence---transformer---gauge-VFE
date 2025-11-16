@@ -1160,6 +1160,7 @@ class MultiScaleSystem:
             scale: Scale to check for consensus
             kl_threshold: KL divergence threshold for consensus
             min_cluster_size: Minimum agents in a cluster to form meta-agent
+            deactivate_constituents: Whether to freeze constituents after condensation
 
         Returns:
             List of newly formed meta-agents
@@ -1169,11 +1170,24 @@ class MultiScaleSystem:
 
         agents_at_scale = self.get_active_agents_at_scale(scale)
 
+        # Check if priors are identical (vanilla Active Inference mode)
+        identical_priors = False
+        if hasattr(self, 'system_config'):
+            identical_priors_mode = getattr(self.system_config, "identical_priors", "off")
+            identical_priors = identical_priors_mode in ("lock", "init_copy")
+
+        if identical_priors:
+            print(f"    ℹ️  Identical priors mode - checking belief consensus only")
+
         if len(agents_at_scale) < min_cluster_size:
             return []
 
-        # DIAGNOSTIC: Show pairwise KL divergences (BOTH belief and model!)
-        print(f"    Pairwise KL divergences (threshold={kl_threshold:.4f}):")
+        # DIAGNOSTIC: Show pairwise KL divergences
+        if identical_priors:
+            print(f"    Pairwise belief KL divergences (threshold={kl_threshold:.4f}):")
+        else:
+            print(f"    Pairwise KL divergences (threshold={kl_threshold:.4f}):")
+
         for i in range(min(len(agents_at_scale), 5)):  # Show first 5 agents
             for j in range(i+1, min(len(agents_at_scale), 5)):
                 agent_i = agents_at_scale[i]
@@ -1198,20 +1212,24 @@ class MultiScaleSystem:
                     kl_belief = float('inf')
                     belief_ok = "✗"
 
-                # Check MODEL consensus
-                mu_p_j_t = omega_ij @ agent_j.mu_p
-                Sigma_p_j_t = omega_ij @ agent_j.Sigma_p @ omega_ij.T
+                if identical_priors:
+                    # Skip model check - priors are identical by construction
+                    print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok}")
+                else:
+                    # Check MODEL consensus
+                    mu_p_j_t = omega_ij @ agent_j.mu_p
+                    Sigma_p_j_t = omega_ij @ agent_j.Sigma_p @ omega_ij.T
 
-                try:
-                    kl_model = kl_gaussian(agent_i.mu_p, agent_i.Sigma_p, mu_p_j_t, Sigma_p_j_t)
-                    model_ok = "✓" if kl_model < kl_threshold else "✗"
-                except:
-                    kl_model = float('inf')
-                    model_ok = "✗"
+                    try:
+                        kl_model = kl_gaussian(agent_i.mu_p, agent_i.Sigma_p, mu_p_j_t, Sigma_p_j_t)
+                        model_ok = "✓" if kl_model < kl_threshold else "✗"
+                    except:
+                        kl_model = float('inf')
+                        model_ok = "✗"
 
-                # Epistemic death = BOTH consensus
-                both_ok = "✓✓" if (belief_ok == "✓" and model_ok == "✓") else "✗✗"
-                print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok} model={kl_model:.6f}{model_ok} {both_ok}")
+                    # Epistemic death = BOTH consensus
+                    both_ok = "✓✓" if (belief_ok == "✓" and model_ok == "✓") else "✗✗"
+                    print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok} model={kl_model:.6f}{model_ok} {both_ok}")
 
         # Create a temporary wrapper for consensus detection
         class AgentWrapper:
@@ -1223,11 +1241,21 @@ class MultiScaleSystem:
         wrapper = AgentWrapper(agents_at_scale)
 
         # Detect consensus clusters
-        detector = ConsensusDetector(
-            belief_threshold=kl_threshold,
-            model_threshold=kl_threshold,
-            use_symmetric_kl=True
-        )
+        if identical_priors:
+            # Skip model consensus check - only check beliefs
+            # (Models are identical by construction, so model KL after transport is meaningless)
+            detector = ConsensusDetector(
+                belief_threshold=kl_threshold,
+                model_threshold=float('inf'),  # Always pass model check
+                use_symmetric_kl=True
+            )
+        else:
+            # Check both belief AND model consensus (epistemic death)
+            detector = ConsensusDetector(
+                belief_threshold=kl_threshold,
+                model_threshold=kl_threshold,
+                use_symmetric_kl=True
+            )
 
         clusters = detector.find_consensus_clusters(wrapper)
 
