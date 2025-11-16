@@ -753,11 +753,11 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         from agent.system import MultiAgentSystem
         temp_system = MultiAgentSystem(active_agents, system.system_config)
 
-        # Compute gradients
+        # Compute gradients (returns List[AgentGradients] in same order)
         gradients = compute_natural_gradients(temp_system)
 
-        # Return in order matching active_agents
-        return [gradients.get(agent.agent_id, None) for agent in active_agents]
+        # Return list directly (already in correct order)
+        return gradients
 
     # Training loop
     print("Training with emergence enabled...")
