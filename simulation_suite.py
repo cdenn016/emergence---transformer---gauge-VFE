@@ -67,7 +67,7 @@ MANIFOLD_TOPOLOGY      = "periodic"
 N_STEPS                = 50
 
 # --- Agents & latent space ---
-N_AGENTS               = 4
+N_AGENTS               = 5        # 5 agents to see them emerge into meta-agent
 K_LATENT               = 11
 
 D_X                    = 5        #observation dimension
@@ -76,17 +76,27 @@ CONNECTION_TYPE        = 'flat'   #['flat', 'random', 'constant'] = 'flat'
 USE_CONNECTION         =  False
 
 
+# --- Hierarchical Emergence (NEW!) ---
+ENABLE_EMERGENCE       = True     # Enable automatic meta-agent formation
+CONSENSUS_THRESHOLD    = 0.05     # KL threshold for epistemic death
+CONSENSUS_CHECK_INTERVAL = 5      # Check for consensus every N steps
+MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
+ENABLE_CROSS_SCALE_PRIORS = True  # Top-down prior propagation
+ENABLE_TIMESCALE_SEP   = True     # Timescale separation (τ_ζ = 10^ζ bits)
+INFO_METRIC            = "fisher_metric"  # Information change metric
+
+
 # --- Energy weights ---
-LAMBDA_SELF            = 1
-LAMBDA_BELIEF_ALIGN    = 1
-LAMBDA_PRIOR_ALIGN     = 1
-LAMBDA_OBS             = 0
-LAMBDA_PHI             = 0       
+LAMBDA_SELF            = 0.1      # Weak self-coupling (allows consensus)
+LAMBDA_BELIEF_ALIGN    = 20.0     # STRONG belief alignment (encourages consensus)
+LAMBDA_PRIOR_ALIGN     = 10.0     # Strong prior alignment
+LAMBDA_OBS             = 0        # No observations (pure alignment dynamics)
+LAMBDA_PHI             = 0.01     # Small gauge coupling
 
 
 
-KAPPA_BETA             = 1
-KAPPA_GAMMA            = 1
+KAPPA_BETA             = 0.05     # Low temperature (sharp attention)
+KAPPA_GAMMA            = 0.1
 
 identical_priors = IDENTICAL_PRIORS = "init_copy"    #lock, off, init_copy
 
@@ -423,11 +433,11 @@ def build_agents(manifold, supports, rng: np.random.Generator):
 
 
 def build_system(agents, rng: np.random.Generator):
-    """Create MultiAgentSystem with masking support."""
+    """Create MultiAgentSystem or MultiScaleSystem with masking support."""
     print(f"\n{'='*70}")
     print("SYSTEM")
     print(f"{'='*70}")
-    
+
     # ⚡ NEW: Create SystemConfig with ALL parameters (no more setattr hacks!)
     system_cfg = SystemConfig(
         # Energy weights
@@ -435,23 +445,23 @@ def build_system(agents, rng: np.random.Generator):
         lambda_belief_align=LAMBDA_BELIEF_ALIGN,
         lambda_prior_align=LAMBDA_PRIOR_ALIGN,
         lambda_obs=LAMBDA_OBS,
-        lambda_phi=LAMBDA_PHI,   
-        
-        
+        lambda_phi=LAMBDA_PHI,
+
+
         identical_priors = IDENTICAL_PRIORS,
         identical_priors_source = IDENTICAL_PRIORS_SOURCE,
-        
+
         # Softmax temps
         kappa_beta=KAPPA_BETA,
         kappa_gamma=KAPPA_GAMMA,
-        
+
         # Overlap
         overlap_threshold=OVERLAP_THRESHOLD,
-        
+
         # Connection
-        use_connection=USE_CONNECTION, 
+        use_connection=USE_CONNECTION,
         connection_init_mode=CONNECTION_TYPE,
-        
+
         # ⚡ NEW: Observation parameters (no more setattr!)
         D_x=D_X,
         obs_W_scale=OBS_W_SCALE,
@@ -462,17 +472,49 @@ def build_system(agents, rng: np.random.Generator):
         obs_ground_truth_amplitude=OBS_GROUND_TRUTH_AMPLITUDE,
         seed=int(rng.integers(0, 2**31)),
     )
-    
+
     # Add mask config
     system_cfg.mask_config = create_mask_config()
-          
-    # Create system
-    system = MultiAgentSystem(agents, system_cfg)
-   
-    # ⚡ SIMPLIFIED: Just call ensure_observation_model() - no more setattr!
-    if system.config.has_observations:
-        system.ensure_observation_model()
-       
+
+    # ⚡ HIERARCHICAL EMERGENCE: Create MultiScaleSystem if enabled
+    if ENABLE_EMERGENCE:
+        from meta.emergence import MultiScaleSystem
+        from math_utils.generators import generate_so3_generators
+
+        print("  Mode: HIERARCHICAL (emergence enabled)")
+        print(f"  Consensus threshold: {CONSENSUS_THRESHOLD}")
+        print(f"  Min cluster size: {MIN_CLUSTER_SIZE}")
+
+        # Create multi-scale system
+        manifold = agents[0].base_manifold  # All agents share same manifold
+        system = MultiScaleSystem(manifold)
+        system.system_config = system_cfg
+
+        # Add agents as base agents (scale 0)
+        generators = generate_so3_generators(K_LATENT)
+        for agent in agents:
+            # Convert regular Agent to HierarchicalAgent at scale 0
+            h_agent = system.add_base_agent(agent.config, agent_id=agent.agent_id)
+            h_agent.support = agent.support
+            h_agent.generators = generators
+            # Copy state from original agent
+            h_agent.mu_q = agent.mu_q.copy()
+            h_agent.Sigma_q = agent.Sigma_q.copy()
+            h_agent.mu_p = agent.mu_p.copy()
+            h_agent.Sigma_p = agent.Sigma_p.copy()
+            if hasattr(agent, 'gauge'):
+                h_agent.gauge.phi = agent.gauge.phi.copy()
+
+        print(f"  Created MultiScaleSystem with {len(system.agents[0])} base agents")
+    else:
+        print("  Mode: STANDARD (no emergence)")
+        # Create standard system
+        system = MultiAgentSystem(agents, system_cfg)
+
+        # ⚡ SIMPLIFIED: Just call ensure_observation_model() - no more setattr!
+        if system.config.has_observations:
+            system.ensure_observation_model()
+
     return system
 
 
@@ -653,6 +695,184 @@ def run_training(system, output_dir: Path):
 
     return history
 
+
+def run_hierarchical_training(multi_scale_system, output_dir: Path):
+    """
+    Run training with hierarchical emergence enabled.
+
+    Agents form meta-agents automatically through consensus detection.
+    """
+    from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
+    from meta.consensus import ConsensusDetector
+    from gradients.gradient_engine import compute_natural_gradients
+
+    print(f"\n{'='*70}")
+    print("HIERARCHICAL TRAINING WITH EMERGENCE")
+    print(f"{'='*70}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create hierarchical config
+    hier_config = HierarchicalConfig(
+        enable_top_down_priors=ENABLE_CROSS_SCALE_PRIORS,
+        enable_bottom_up_obs=True,
+        enable_timescale_filtering=ENABLE_TIMESCALE_SEP,
+        info_change_metric=INFO_METRIC,
+        consensus_check_interval=CONSENSUS_CHECK_INTERVAL,
+        consensus_kl_threshold=CONSENSUS_THRESHOLD
+    )
+
+    # Create consensus detector
+    detector = ConsensusDetector(
+        belief_threshold=CONSENSUS_THRESHOLD,
+        model_threshold=CONSENSUS_THRESHOLD,
+        use_symmetric_kl=True
+    )
+
+    # Create evolution engine
+    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config, detector)
+
+    print(f"  Steps              : {N_STEPS}")
+    print(f"  Consensus check    : every {CONSENSUS_CHECK_INTERVAL} steps")
+    print(f"  Consensus threshold: {CONSENSUS_THRESHOLD}")
+    print(f"  Timescale sep      : {ENABLE_TIMESCALE_SEP}")
+    print(f"  Cross-scale priors : {ENABLE_CROSS_SCALE_PRIORS}")
+    print()
+
+    # Storage for history
+    history = {
+        'step': [],
+        'total_energy': [],
+        'n_scales': [],
+        'n_active_agents': [],
+        'n_condensations': [],
+        'emergence_events': []
+    }
+
+    def compute_gradients_fn(system):
+        """Wrapper to compute gradients for all active agents."""
+        active_agents = system.get_all_active_agents()
+        if len(active_agents) == 0:
+            return []
+
+        # Build temporary MultiAgentSystem for gradient computation
+        # (gradient engine expects MultiAgentSystem)
+        from agent.system import MultiAgentSystem
+        temp_system = MultiAgentSystem(active_agents, system.system_config)
+
+        # Compute gradients
+        gradients = compute_natural_gradients(temp_system)
+
+        # Return in order matching active_agents
+        return [gradients.get(agent.agent_id, None) for agent in active_agents]
+
+    # Training loop
+    print("Training with emergence enabled...")
+    print("-" * 70)
+
+    for step in range(N_STEPS):
+        # Evolve one step with hierarchical dynamics
+        metrics = engine.evolve_step(
+            learning_rate_mu_q=LR_MU_Q,
+            learning_rate_Sigma_q=LR_SIGMA_Q,
+            learning_rate_mu_p=LR_MU_P,
+            learning_rate_Sigma_p=LR_SIGMA_P,
+            learning_rate_phi=LR_PHI,
+            compute_gradients_fn=compute_gradients_fn
+        )
+
+        # Record metrics
+        history['step'].append(step)
+        history['total_energy'].append(metrics.get('energy', 0.0))
+        history['n_scales'].append(metrics.get('n_scales', 1))
+        history['n_active_agents'].append(metrics.get('n_active', 0))
+        history['n_condensations'].append(metrics.get('n_condensations_this_step', 0))
+
+        # Check for emergence events
+        if metrics.get('n_condensations_this_step', 0) > 0:
+            event = {
+                'step': step,
+                'n_condensations': metrics['n_condensations_this_step'],
+                'n_scales': metrics['n_scales']
+            }
+            history['emergence_events'].append(event)
+
+            print(f"\n🌟 EMERGENCE at step {step}!")
+            print(f"   {metrics['n_condensations_this_step']} new meta-agent(s) formed")
+            print(f"   Total scales: {metrics['n_scales']}")
+            print(f"   Active agents: {metrics['n_active']}")
+
+        # Periodic logging
+        if step % LOG_EVERY == 0:
+            print(f"Step {step:4d} | "
+                  f"Energy: {metrics.get('energy', 0):.4f} | "
+                  f"Scales: {metrics.get('n_scales', 1)} | "
+                  f"Active: {metrics.get('n_active', 0)}")
+
+    print("-" * 70)
+    print("✓ Training complete")
+
+    # Save history
+    hist_path = output_dir / "hierarchical_history.pkl"
+    with open(hist_path, "wb") as f:
+        pickle.dump(history, f)
+    print("✓ Saved hierarchical_history.pkl")
+
+    # Save as npz
+    arrays = {k: np.array(v) for k, v in history.items() if k != 'emergence_events'}
+    npz_path = output_dir / "hierarchical_history.npz"
+    np.savez(npz_path, **arrays)
+    print("✓ Saved hierarchical_history.npz")
+
+    # Plot emergence
+    if history['step']:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Energy evolution with emergence events
+        ax1.plot(history['step'], history['total_energy'], 'b-', linewidth=2, label='Energy')
+        for event in history['emergence_events']:
+            ax1.axvline(x=event['step'], color='red', alpha=0.3, linestyle='--', linewidth=2)
+        ax1.set_xlabel('Step')
+        ax1.set_ylabel('Total Energy')
+        ax1.set_title('Energy Evolution (red lines = emergence events)')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Hierarchical structure evolution
+        ax2.plot(history['step'], history['n_scales'], 'g-', linewidth=2, marker='o', label='# Scales')
+        ax2.plot(history['step'], history['n_active_agents'], 'b-', linewidth=2, marker='s', label='# Active Agents')
+        ax2.set_xlabel('Step')
+        ax2.set_ylabel('Count')
+        ax2.set_title('Hierarchical Structure Evolution')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        fig_path = output_dir / "emergence_evolution.png"
+        plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        print("✓ Saved emergence_evolution.png")
+
+    # Print final summary
+    print(f"\n{'='*70}")
+    print("EMERGENCE SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total emergence events: {len(history['emergence_events'])}")
+    print(f"Final # scales: {history['n_scales'][-1] if history['n_scales'] else 1}")
+    print(f"Final # active agents: {history['n_active_agents'][-1] if history['n_active_agents'] else 0}")
+    print(f"{'='*70}\n")
+
+    # Print system summary
+    from meta.emergence import analyze_hierarchical_structure
+    structure = analyze_hierarchical_structure(multi_scale_system)
+    print("\nFinal Hierarchical Structure:")
+    print(f"  Max scale: {structure['n_scales'] - 1}")
+    for scale in range(structure['n_scales']):
+        n_total = structure['agents_per_scale'].get(scale, 0)
+        n_active = structure['active_per_scale'].get(scale, 0)
+        print(f"  Scale {scale}: {n_active}/{n_total} active agents")
+
+    return history
 
 
 def run_final_diagnostics(system, output_dir: Path):
@@ -840,23 +1060,39 @@ def main():
     system   = build_system(agents, rng)
     
     # Initial diagnostics
-    run_initial_diagnostics(system, output_dir)    
-    
+    if not ENABLE_EMERGENCE:  # Skip for hierarchical system (different structure)
+        run_initial_diagnostics(system, output_dir)
+
     # Save config
     save_config_file(output_dir)
-    
-    # Train
-    history = run_training(system, output_dir)
-    
+
+    # Train (hierarchical or standard)
+    if ENABLE_EMERGENCE:
+        history = run_hierarchical_training(system, output_dir)
+    else:
+        history = run_training(system, output_dir)
+
     # Final diagnostics
-    run_final_diagnostics(system, output_dir)
+    if not ENABLE_EMERGENCE:  # Skip for hierarchical system (different structure)
+        run_final_diagnostics(system, output_dir)
     
     # Summary
     print(f"\n{'='*70}")
     print("✓ SIMULATION COMPLETE")
     print(f"{'='*70}")
     print(f"Results saved to: {output_dir}")
-    print(f"Final energy: {history.total_energy[-1]:.4f}")
+
+    if ENABLE_EMERGENCE:
+        # Hierarchical history is a dict
+        if history['total_energy']:
+            print(f"Final energy: {history['total_energy'][-1]:.4f}")
+            print(f"Emergence events: {len(history['emergence_events'])}")
+            print(f"Final scales: {history['n_scales'][-1]}")
+    else:
+        # Standard history is TrainingHistory object
+        if hasattr(history, 'total_energy') and history.total_energy:
+            print(f"Final energy: {history.total_energy[-1]:.4f}")
+
     print("=" * 70 + "\n")
 
 
