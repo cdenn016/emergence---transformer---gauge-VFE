@@ -797,6 +797,16 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print("-" * 70)
 
     for step in range(N_STEPS):
+        # Compute energy BEFORE updates (like Trainer does)
+        active_agents = multi_scale_system.get_all_active_agents()
+        if len(active_agents) > 0:
+            temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
+            from free_energy_clean import compute_total_free_energy
+            energies = compute_total_free_energy(temp_system)
+            total_energy = energies.total
+        else:
+            total_energy = 0.0
+
         # Evolve one step with hierarchical dynamics
         # Note: HierarchicalEvolutionEngine uses single learning_rate
         # Using LR_MU_Q as the base learning rate
@@ -805,33 +815,37 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
             compute_gradients_fn=compute_gradients_fn
         )
 
+        # Convert dict metrics to scalars
+        n_scales = len(metrics.get('n_active', {}))
+        total_active = sum(metrics.get('n_active', {}).values())
+
         # Record metrics
         history['step'].append(step)
-        history['total_energy'].append(metrics.get('energy', 0.0))
-        history['n_scales'].append(metrics.get('n_scales', 1))
-        history['n_active_agents'].append(metrics.get('n_active', 0))
-        history['n_condensations'].append(metrics.get('n_condensations_this_step', 0))
+        history['total_energy'].append(total_energy)
+        history['n_scales'].append(n_scales)
+        history['n_active_agents'].append(total_active)
+        history['n_condensations'].append(metrics.get('n_condensations', 0))
 
         # Check for emergence events
-        if metrics.get('n_condensations_this_step', 0) > 0:
+        if metrics.get('n_condensations', 0) > 0:
             event = {
                 'step': step,
-                'n_condensations': metrics['n_condensations_this_step'],
-                'n_scales': metrics['n_scales']
+                'n_condensations': metrics['n_condensations'],
+                'n_scales': n_scales
             }
             history['emergence_events'].append(event)
 
             print(f"\n🌟 EMERGENCE at step {step}!")
-            print(f"   {metrics['n_condensations_this_step']} new meta-agent(s) formed")
-            print(f"   Total scales: {metrics['n_scales']}")
-            print(f"   Active agents: {metrics['n_active']}")
+            print(f"   {metrics['n_condensations']} new meta-agent(s) formed")
+            print(f"   Total scales: {n_scales}")
+            print(f"   Active agents: {total_active}")
 
         # Periodic logging
         if step % LOG_EVERY == 0:
             print(f"Step {step:4d} | "
-                  f"Energy: {metrics.get('energy', 0):.4f} | "
-                  f"Scales: {metrics.get('n_scales', 1)} | "
-                  f"Active: {metrics.get('n_active', 0)}")
+                  f"Energy: {total_energy:.4f} | "
+                  f"Scales: {n_scales} | "
+                  f"Active: {total_active}")
 
     print("-" * 70)
     print("✓ Training complete")
