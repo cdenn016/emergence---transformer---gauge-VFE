@@ -164,6 +164,10 @@ class HierarchicalAgent(Agent):
         self.mu_p = omega @ self.parent_meta.mu_q
         self.Sigma_p = omega @ self.parent_meta.Sigma_q @ omega.T
 
+        # Regularize to ensure SPD after transport
+        self.Sigma_p = 0.5 * (self.Sigma_p + self.Sigma_p.T)  # Symmetrize
+        self.Sigma_p += 1e-6 * np.eye(self.K)  # Regularize
+
     def update_prior_from_global_state(self, system):
         """
         Self-referential closure: Top scale observes entire system.
@@ -211,6 +215,10 @@ class HierarchicalAgent(Agent):
             mu_transported = omega @ agent.mu_q
             Sigma_transported = omega @ agent.Sigma_q @ omega.T
 
+            # Regularize to ensure SPD after transport
+            Sigma_transported = 0.5 * (Sigma_transported + Sigma_transported.T)  # Symmetrize
+            Sigma_transported += 1e-6 * np.eye(self.K)  # Regularize
+
             transported_beliefs.append((mu_transported, Sigma_transported))
 
             # Coherence = exp(-average KL to all others)
@@ -231,9 +239,17 @@ class HierarchicalAgent(Agent):
                 mu_other = omega_other @ other_agent.mu_q
                 Sigma_other = omega_other @ other_agent.Sigma_q @ omega_other.T
 
+                # Regularize to ensure SPD after transport
+                Sigma_other = 0.5 * (Sigma_other + Sigma_other.T)  # Symmetrize
+                Sigma_other += 1e-6 * np.eye(self.K)  # Regularize
+
                 from math_utils.numerical_utils import kl_gaussian
-                kl = kl_gaussian(mu_transported, Sigma_transported,
-                               mu_other, Sigma_other)
+                try:
+                    kl = kl_gaussian(mu_transported, Sigma_transported,
+                                   mu_other, Sigma_other)
+                except np.linalg.LinAlgError:
+                    # If still fails, skip this comparison
+                    kl = 10.0  # Large default KL (low coherence)
                 kl_sum += kl
                 count += 1
 
