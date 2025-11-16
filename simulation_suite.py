@@ -816,9 +816,17 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
                         self._overlaps[(i, j)] = True
                         continue
 
-                    # Check if maximum possible overlap exceeds threshold
+                    # CRITICAL: Match MultiAgentSystem's two-check overlap logic
+                    # Check 1: Upper bound (product of maxes)
                     max_overlap = np.max(chi_i) * np.max(chi_j)
-                    self._overlaps[(i, j)] = (max_overlap > overlap_threshold)
+                    if max_overlap < overlap_threshold:
+                        self._overlaps[(i, j)] = False
+                        continue
+
+                    # Check 2: Actual overlap (max of products)
+                    chi_ij = chi_i * chi_j  # Element-wise product
+                    has_overlap = np.max(chi_ij) >= overlap_threshold
+                    self._overlaps[(i, j)] = has_overlap
 
         def get_neighbors(self, agent_idx: int):
             """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
