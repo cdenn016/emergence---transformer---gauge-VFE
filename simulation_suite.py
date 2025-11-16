@@ -509,14 +509,20 @@ def build_system(agents, rng: np.random.Generator):
         if system_cfg.identical_priors in ("init_copy", "lock"):
             base_agents = system.agents[0]  # Scale 0 agents
             if len(base_agents) > 0:
-                # Compute shared prior from all base agents (using L_p to match MultiAgentSystem!)
-                mu_p_sum = sum(a.mu_p for a in base_agents) / len(base_agents)
-                L_p_sum = sum(a.L_p for a in base_agents) / len(base_agents)
+                # CRITICAL: Respect identical_priors_source like MultiAgentSystem does!
+                if system_cfg.identical_priors_source == "mean":
+                    # Average across all base agents
+                    mu_p_shared = sum(a.mu_p for a in base_agents) / len(base_agents)
+                    L_p_shared = sum(a.L_p for a in base_agents) / len(base_agents)
+                else:
+                    # Use first agent's prior (default behavior)
+                    mu_p_shared = base_agents[0].mu_p.copy()
+                    L_p_shared = base_agents[0].L_p.copy()
 
                 # Apply to all base agents (set L_p, not Sigma_p, to match MultiAgentSystem!)
                 for a in base_agents:
-                    a.mu_p = mu_p_sum.copy()
-                    a.L_p = L_p_sum.copy()
+                    a.mu_p = mu_p_shared.copy()
+                    a.L_p = L_p_shared.copy()
                     if hasattr(a, 'invalidate_caches'):
                         a.invalidate_caches()
 
