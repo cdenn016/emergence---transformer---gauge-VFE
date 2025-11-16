@@ -1087,20 +1087,27 @@ class MultiScaleSystem:
         - Lower scales evolve → change collective
         - Top re-observes → updates prior
         - LOOP: System observes itself!
+
+        NOTE: Self-referential closure only activates when hierarchy exists (max_scale > 0).
+        Before meta-agents form, agents keep their existing priors.
         """
         n_updated_from_parent = 0
         n_updated_from_global = 0
+
+        # Only apply self-referential closure when multiple scales exist
+        has_hierarchy = self.max_scale() > 0
 
         for agent in self.get_all_active_agents():
             if agent.parent_meta is not None:
                 # Regular hierarchical flow: prior from parent
                 agent.update_prior_from_parent()
                 n_updated_from_parent += 1
-            else:
-                # Top-scale: self-referential closure
+            elif has_hierarchy:
+                # Top-scale: self-referential closure (only when hierarchy exists!)
                 # System observes itself observing itself!
                 agent.update_prior_from_global_state(self)
                 n_updated_from_global += 1
+            # else: Keep existing prior (before meta-agents form)
 
         return {
             'from_parent': n_updated_from_parent,
