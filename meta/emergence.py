@@ -164,6 +164,99 @@ class HierarchicalAgent(Agent):
         self.mu_p = omega @ self.parent_meta.mu_q
         self.Sigma_p = omega @ self.parent_meta.Sigma_q @ omega.T
 
+    def update_prior_from_global_state(self, system):
+        """
+        Self-referential closure: Top scale observes entire system.
+
+        Wheeler's "it from bit" - the system observes itself observing itself.
+
+        For agents at the top of the hierarchy (no parent), the prior
+        comes from observing the ENTIRE system state - creating a
+        strange loop where the system bootstraps its own reference frame.
+
+        p_top ← statistics(ALL active agents at all scales)
+
+        This creates a self-consistent fixed point:
+        - Top observes collective → forms beliefs
+        - Beliefs flow down as priors
+        - Lower scales evolve under these priors
+        - Evolution changes collective state
+        - Top re-observes changed state
+        - Loop continues → self-organizing!
+
+        Args:
+            system: MultiScaleSystem containing all agents
+        """
+        if self.parent_meta is not None:
+            return  # Only for top-scale agents
+
+        all_agents = system.get_all_active_agents()
+
+        if len(all_agents) <= 1:
+            return  # Need multiple agents to observe
+
+        # Compute coherence-weighted average of all beliefs
+        coherence_scores = []
+        transported_beliefs = []
+
+        for agent in all_agents:
+            # Transport agent's belief to this (top) frame
+            omega = compute_transport(
+                self.gauge.phi,
+                agent.gauge.phi,
+                self.generators,
+                validate=False
+            )
+
+            mu_transported = omega @ agent.mu_q
+            Sigma_transported = omega @ agent.Sigma_q @ omega.T
+
+            transported_beliefs.append((mu_transported, Sigma_transported))
+
+            # Coherence = exp(-average KL to all others)
+            # Agents coherent with collective get higher weight
+            kl_sum = 0.0
+            count = 0
+            for other_agent in all_agents:
+                if other_agent.agent_id == agent.agent_id:
+                    continue
+
+                omega_other = compute_transport(
+                    self.gauge.phi,
+                    other_agent.gauge.phi,
+                    self.generators,
+                    validate=False
+                )
+
+                mu_other = omega_other @ other_agent.mu_q
+                Sigma_other = omega_other @ other_agent.Sigma_q @ omega_other.T
+
+                from math_utils.numerical_utils import kl_gaussian
+                kl = kl_gaussian(mu_transported, Sigma_transported,
+                               mu_other, Sigma_other)
+                kl_sum += kl
+                count += 1
+
+            # Coherence score
+            avg_kl = kl_sum / max(count, 1)
+            coherence = np.exp(-avg_kl)
+            coherence_scores.append(coherence)
+
+        # Normalize weights
+        coherence_scores = np.array(coherence_scores)
+        weights = coherence_scores / (np.sum(coherence_scores) + 1e-10)
+
+        # Compute weighted average → becomes top agent's prior
+        self.mu_p = np.zeros_like(self.mu_q)
+        self.Sigma_p = np.zeros_like(self.Sigma_q)
+
+        for (mu, Sigma), w in zip(transported_beliefs, weights):
+            self.mu_p += w * mu
+            self.Sigma_p += w * Sigma
+
+        # Regularize to ensure SPD
+        self.Sigma_p += 1e-6 * np.eye(self.K)
+
     def generate_observations_from_constituents(self) -> Optional[np.ndarray]:
         """
         Bottom-up: Generate observations from constituent beliefs.
@@ -955,20 +1048,38 @@ class MultiScaleSystem:
 
     def update_cross_scale_priors(self):
         """
-        Update all agent priors from their parent meta-agents (top-down).
+        Update all agent priors with self-referential closure.
 
-        For each active agent with a parent: p_i^(ζ) ← q_M^(ζ+1)
+        Two modes:
+        1. Agents with parents: p_i^(ζ) ← q_M^(ζ+1) (from parent)
+        2. Top-scale agents: p_top ← statistics(ALL agents) (strange loop!)
 
-        This creates top-down information flow: meta-agent beliefs
-        become constituent priors.
+        This creates bidirectional flow:
+        - Top observes collective → forms prior
+        - Prior flows down hierarchy
+        - Lower scales evolve → change collective
+        - Top re-observes → updates prior
+        - LOOP: System observes itself!
         """
-        n_updated = 0
+        n_updated_from_parent = 0
+        n_updated_from_global = 0
+
         for agent in self.get_all_active_agents():
             if agent.parent_meta is not None:
+                # Regular hierarchical flow: prior from parent
                 agent.update_prior_from_parent()
-                n_updated += 1
+                n_updated_from_parent += 1
+            else:
+                # Top-scale: self-referential closure
+                # System observes itself observing itself!
+                agent.update_prior_from_global_state(self)
+                n_updated_from_global += 1
 
-        return n_updated
+        return {
+            'from_parent': n_updated_from_parent,
+            'from_global': n_updated_from_global,
+            'total': n_updated_from_parent + n_updated_from_global
+        }
 
     def compute_observation_likelihood_meta(self, meta_agent: HierarchicalAgent) -> float:
         """
