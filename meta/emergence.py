@@ -378,10 +378,10 @@ class MultiScaleSystem:
             Created HierarchicalAgent at scale 0
         """
         local_index = len(self.agents[0])
-        
+
         if agent_id is None:
             agent_id = f"base_{local_index}"
-        
+
         agent = HierarchicalAgent(
             scale=0,
             local_index=local_index,
@@ -390,7 +390,12 @@ class MultiScaleSystem:
             rng=np.random.default_rng(local_index),
             base_manifold=self.base_manifold
         )
-        
+
+        # Initialize fields (same as Agent class would do)
+        agent._initialize_belief_cholesky()
+        agent._initialize_prior_cholesky()
+        agent._initialize_gauge()
+
         self.agents[0].append(agent)
         return agent
     
@@ -871,12 +876,12 @@ class MultiScaleSystem:
         Returns:
             coherence: Value in [0, 1] (1 = perfect consensus)
         """
-        from math_utils.kl_divergence import kl_divergence_gaussians
-        
+        from math_utils.numerical_utils import kl_gaussian
+
         # Compute average pairwise KL divergence
         kl_sum = 0.0
         n_pairs = 0
-        
+
         for i, agent_i in enumerate(constituents):
             for agent_j in constituents[i+1:]:
                 if field_type == 'belief':
@@ -885,10 +890,10 @@ class MultiScaleSystem:
                 else:
                     mu_i, Sigma_i = agent_i.mu_p, agent_i.Sigma_p
                     mu_j, Sigma_j = agent_j.mu_p, agent_j.Sigma_p
-                
+
                 # Symmetrized KL
-                kl_ij = kl_divergence_gaussians(mu_i, Sigma_i, mu_j, Sigma_j)
-                kl_ji = kl_divergence_gaussians(mu_j, Sigma_j, mu_i, Sigma_i)
+                kl_ij = kl_gaussian(mu_i, Sigma_i, mu_j, Sigma_j)
+                kl_ji = kl_gaussian(mu_j, Sigma_j, mu_i, Sigma_i)
                 kl_sum += (kl_ij + kl_ji) / 2
                 n_pairs += 1
         
@@ -922,19 +927,19 @@ class MultiScaleSystem:
             - Weak coherence: C̄ᵢ ≈ 0.0 (large KL)
             - Used to weight agents in meta-agent formation
         """
-        from math_utils.kl_divergence import kl_divergence_gaussians
-        
+        from math_utils.numerical_utils import kl_gaussian
+
         n = len(constituents)
         coherence_scores = np.zeros(n)
-        
+
         for i, agent_i in enumerate(constituents):
             kl_sum = 0.0
             count = 0
-            
+
             for j, agent_j in enumerate(constituents):
                 if i == j:
                     continue
-                
+
                 # Compute KL at representative location
                 if agent_i.base_manifold.is_point:
                     # 0D case: use fields directly
@@ -947,7 +952,7 @@ class MultiScaleSystem:
                 else:
                     # Spatial case: use center of support
                     center_idx = tuple(s//2 for s in agent_i.base_manifold.shape)
-                    
+
                     if field_type == 'belief':
                         mu_i = agent_i.mu_q[center_idx]
                         Sigma_i = agent_i.Sigma_q[center_idx]
@@ -958,10 +963,10 @@ class MultiScaleSystem:
                         Sigma_i = agent_i.Sigma_p[center_idx]
                         mu_j = agent_j.mu_p[center_idx]
                         Sigma_j = agent_j.Sigma_p[center_idx]
-                
+
                 # Symmetric KL divergence
-                kl_ij = kl_divergence_gaussians(mu_i, Sigma_i, mu_j, Sigma_j)
-                kl_ji = kl_divergence_gaussians(mu_j, Sigma_j, mu_i, Sigma_i)
+                kl_ij = kl_gaussian(mu_i, Sigma_i, mu_j, Sigma_j)
+                kl_ji = kl_gaussian(mu_j, Sigma_j, mu_i, Sigma_i)
                 kl_sym = (kl_ij + kl_ji) / 2.0
                 
                 kl_sum += kl_sym

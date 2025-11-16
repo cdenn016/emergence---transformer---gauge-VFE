@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 # Import from existing modules
-from math_utils.kl_divergence import kl_divergence_gaussian
+from math_utils.numerical_utils import kl_gaussian
 from math_utils.transport import compute_transport
 from math_utils.generators import generate_so3_generators
 
@@ -400,7 +400,7 @@ class CrossScaleFreeEnergy:
                     )
                     
                     # Compute KL divergence
-                    kl_belief = kl_divergence_gaussian(
+                    kl_belief = kl_gaussian(
                         agent_i.mu_q, agent_i.Sigma_q,
                         mu_j_transported, Sigma_j_transported
                     )
