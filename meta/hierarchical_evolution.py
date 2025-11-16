@@ -204,13 +204,19 @@ class HierarchicalEvolutionEngine:
         active_agents = self.system.get_all_active_agents()
         n_applied = 0
 
+        # CRITICAL: Only apply timescale filtering when hierarchy exists!
+        # Before meta-agents form, all agents should update at every step
+        # (matching standard training behavior)
+        has_hierarchy = self.system.max_scale() > 0
+        use_filtering = self.config.enable_timescale_filtering and has_hierarchy
+
         for agent, grad in zip(active_agents, gradients):
             # Compute information change from gradient
             delta_info = self._compute_info_change(agent, grad)
             metrics['info_changes'].append(delta_info)
 
             # Check if agent should update (timescale filtering)
-            if self.config.enable_timescale_filtering:
+            if use_filtering:
                 should_update = agent.should_update(delta_info)
             else:
                 should_update = True
