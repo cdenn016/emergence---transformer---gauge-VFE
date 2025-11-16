@@ -146,11 +146,13 @@ def test_basic_multiscale_system():
 
     # Check consensus
     state = detector.check_full_consensus(agent_2, agent_3)
-    print(f"   Agents 2 & 3 in consensus: {state.in_consensus}")
+    print(f"   Agents 2 & 3 epistemically dead: {state.is_epistemically_dead}")
+    print(f"     Belief consensus: {state.belief_consensus}")
+    print(f"     Model consensus: {state.model_consensus}")
     print(f"     Belief divergence: {state.belief_divergence:.4f}")
     print(f"     Model divergence: {state.model_divergence:.4f}")
 
-    if state.in_consensus:
+    if state.is_epistemically_dead:
         print("   Forming meta-agent from agents [2, 3]...")
         new_meta = system.form_meta_agents_at_scale(
             source_scale=0,
