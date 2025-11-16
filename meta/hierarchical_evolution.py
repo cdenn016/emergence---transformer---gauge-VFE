@@ -1,0 +1,481 @@
+# -*- coding: utf-8 -*-
+"""
+Hierarchical Evolution Loop for Multi-Scale Gauge System
+=========================================================
+
+Main evolution loop integrating:
+1. Cross-scale prior updates (top-down)
+2. Cross-scale observation generation (bottom-up)
+3. Gradient computation for all scales
+4. Timescale-separated updates
+5. Automatic consensus detection and meta-agent formation
+
+This is the core dynamics engine for the hierarchical gauge-theoretic system.
+
+Author: Chris & Christine
+Date: November 2025
+"""
+
+import numpy as np
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+
+from meta.emergence import MultiScaleSystem, HierarchicalAgent
+
+
+@dataclass
+class HierarchicalConfig:
+    """Configuration for hierarchical evolution."""
+
+    # Cross-scale dynamics
+    enable_top_down_priors: bool = True
+    enable_bottom_up_obs: bool = True
+
+    # Timescale separation
+    enable_timescale_filtering: bool = True
+    info_change_metric: str = "gradient_norm"  # "gradient_norm" or "parameter_change"
+
+    # Consensus detection
+    consensus_check_interval: int = 10  # Steps between consensus checks
+    consensus_kl_threshold: float = 0.01
+    min_cluster_size: int = 2
+
+    # Observation likelihood for meta-agents
+    lambda_obs_meta: float = 1.0  # Weight for constituent-based observations
+
+
+class HierarchicalEvolutionEngine:
+    """
+    Evolution engine for hierarchical multi-scale system.
+
+    Implements the full dynamics:
+    1. Update priors from parents (top-down)
+    2. Compute gradients (using existing gradient_engine)
+    3. Apply updates with timescale filtering
+    4. Check for consensus and form new meta-agents
+    """
+
+    def __init__(self,
+                 system: MultiScaleSystem,
+                 config: Optional[HierarchicalConfig] = None):
+        """
+        Initialize hierarchical evolution engine.
+
+        Args:
+            system: MultiScaleSystem to evolve
+            config: Evolution configuration
+        """
+        self.system = system
+        self.config = config or HierarchicalConfig()
+
+        # Evolution state
+        self.step_count = 0
+        self.condensation_history = []
+
+        # Metrics tracking
+        self.metrics_history = {
+            'step': [],
+            'n_agents_per_scale': [],
+            'n_active_per_scale': [],
+            'priors_updated': [],
+            'updates_applied': [],
+            'condensations': []
+        }
+
+    def evolve_step(self,
+                   learning_rate: float = 0.01,
+                   compute_gradients_fn: Optional[callable] = None) -> Dict:
+        """
+        Perform one step of hierarchical evolution.
+
+        Full algorithm:
+        1. Update priors from meta-agents (top-down)
+        2. Compute gradients for all active agents
+        3. Apply updates with timescale filtering
+        4. Check for consensus (periodically)
+
+        Args:
+            learning_rate: Base learning rate for updates
+            compute_gradients_fn: Function to compute gradients
+                                 Should accept (system) and return List[AgentGradients]
+
+        Returns:
+            metrics: Dict with step metrics
+        """
+        metrics = {
+            'step': self.step_count,
+            'n_agents': {},
+            'n_active': {},
+            'n_priors_updated': 0,
+            'n_updates_applied': 0,
+            'n_condensations': 0,
+            'info_changes': [],
+        }
+
+        # =====================================================================
+        # Phase 1: Top-Down Prior Updates
+        # =====================================================================
+        if self.config.enable_top_down_priors:
+            n_updated = self.system.update_cross_scale_priors()
+            metrics['n_priors_updated'] = n_updated
+
+        # =====================================================================
+        # Phase 2: Compute Gradients
+        # =====================================================================
+        if compute_gradients_fn is None:
+            # Use default gradient computation (requires gradient_engine)
+            try:
+                from gradients.gradient_engine import compute_natural_gradients
+
+                # Create temporary wrapper for compatibility
+                class SystemWrapper:
+                    def __init__(self, multiscale_system):
+                        self.agents = multiscale_system.get_all_active_agents()
+                        self.n_agents = len(self.agents)
+                        self.config = self.agents[0].config if self.agents else None
+
+                    def get_neighbors(self, agent_idx):
+                        """Return all active agents for cross-scale coupling."""
+                        return list(range(self.n_agents))
+
+                wrapper = SystemWrapper(self.system)
+                gradients = compute_natural_gradients(wrapper)
+
+            except ImportError:
+                print("[Warning] gradient_engine not available, skipping gradient computation")
+                gradients = None
+        else:
+            gradients = compute_gradients_fn(self.system)
+
+        # =====================================================================
+        # Phase 3: Apply Updates with Timescale Filtering
+        # =====================================================================
+        if gradients is not None:
+            n_applied = self._apply_filtered_updates(
+                gradients,
+                learning_rate,
+                metrics
+            )
+            metrics['n_updates_applied'] = n_applied
+
+        # =====================================================================
+        # Phase 4: Consensus Detection (Periodic)
+        # =====================================================================
+        if self.step_count % self.config.consensus_check_interval == 0:
+            new_condensations = self._check_and_condense_all_scales()
+            metrics['n_condensations'] = len(new_condensations)
+            self.condensation_history.extend(new_condensations)
+
+        # =====================================================================
+        # Record Metrics
+        # =====================================================================
+        for scale in self.system.agents.keys():
+            agents_at_scale = self.system.agents[scale]
+            metrics['n_agents'][scale] = len(agents_at_scale)
+            metrics['n_active'][scale] = sum(1 for a in agents_at_scale if a.is_active)
+
+        self._record_metrics(metrics)
+        self.step_count += 1
+        self.system.current_time = self.step_count
+
+        return metrics
+
+    def _apply_filtered_updates(self,
+                                gradients: List,
+                                learning_rate: float,
+                                metrics: Dict) -> int:
+        """
+        Apply gradient updates with timescale filtering.
+
+        Only updates agents when accumulated information exceeds threshold.
+
+        Args:
+            gradients: List of AgentGradients for all active agents
+            learning_rate: Learning rate
+            metrics: Metrics dict to update
+
+        Returns:
+            Number of agents actually updated
+        """
+        active_agents = self.system.get_all_active_agents()
+        n_applied = 0
+
+        for agent, grad in zip(active_agents, gradients):
+            # Compute information change from gradient
+            delta_info = self._compute_info_change(agent, grad)
+            metrics['info_changes'].append(delta_info)
+
+            # Check if agent should update (timescale filtering)
+            if self.config.enable_timescale_filtering:
+                should_update = agent.should_update(delta_info)
+            else:
+                should_update = True
+
+            if should_update:
+                # Apply natural gradient update
+                self._apply_single_update(agent, grad, learning_rate)
+                n_applied += 1
+
+        return n_applied
+
+    def _compute_info_change(self, agent: HierarchicalAgent, grad) -> float:
+        """
+        Compute information change for timescale filtering.
+
+        ΔI ≈ ||∇μ|| + ||∇Σ|| (in bits)
+
+        Args:
+            agent: Agent being updated
+            grad: Gradient object
+
+        Returns:
+            Information change estimate (in bits)
+        """
+        if self.config.info_change_metric == "gradient_norm":
+            # Use gradient magnitude as proxy for information change
+            delta_mu = np.linalg.norm(grad.delta_mu_q) if grad.delta_mu_q is not None else 0.0
+            delta_Sigma = np.linalg.norm(grad.delta_Sigma_q) if grad.delta_Sigma_q is not None else 0.0
+
+            # Convert to bits (rough approximation)
+            # ΔI ≈ log(1 + ||gradient||)
+            info_change = np.log2(1.0 + delta_mu + delta_Sigma)
+
+        elif self.config.info_change_metric == "parameter_change":
+            # Would require storing previous parameters
+            info_change = 1.0  # Fallback
+
+        else:
+            info_change = 1.0
+
+        return float(info_change)
+
+    def _apply_single_update(self,
+                            agent: HierarchicalAgent,
+                            grad,
+                            learning_rate: float):
+        """
+        Apply gradient update to a single agent.
+
+        Args:
+            agent: Agent to update
+            grad: Gradient object with delta_mu_q, delta_L_q, etc.
+            learning_rate: Learning rate
+        """
+        # Update belief mean
+        if grad.delta_mu_q is not None:
+            agent.mu_q = agent.mu_q - learning_rate * grad.delta_mu_q
+
+        # Update belief covariance (via Cholesky factor)
+        if hasattr(grad, 'delta_L_q') and grad.delta_L_q is not None:
+            agent.L_q = agent.L_q - learning_rate * grad.delta_L_q
+        elif grad.delta_Sigma_q is not None:
+            # Fallback: update Sigma directly (triggers L recomputation)
+            agent.Sigma_q = agent.Sigma_q - learning_rate * grad.delta_Sigma_q
+
+        # Update prior (if enabled)
+        if not self.config.enable_top_down_priors:
+            # Only update priors if not being set by parent
+            if grad.delta_mu_p is not None:
+                agent.mu_p = agent.mu_p - learning_rate * grad.delta_mu_p
+
+            if hasattr(grad, 'delta_L_p') and grad.delta_L_p is not None:
+                agent.L_p = agent.L_p - learning_rate * grad.delta_L_p
+            elif grad.delta_Sigma_p is not None:
+                agent.Sigma_p = agent.Sigma_p - learning_rate * grad.delta_Sigma_p
+
+        # Update gauge field
+        if grad.delta_phi is not None:
+            agent.gauge.phi = agent.gauge.phi - learning_rate * grad.delta_phi
+
+            # Project back to principal ball ||φ|| < π
+            phi_norm = np.linalg.norm(agent.gauge.phi, axis=-1, keepdims=True)
+            max_norm = np.pi * 0.95
+            exceeds = phi_norm > max_norm
+            if np.any(exceeds):
+                scale_factor = np.where(exceeds, max_norm / (phi_norm + 1e-8), 1.0)
+                agent.gauge.phi = agent.gauge.phi * scale_factor
+
+    def _check_and_condense_all_scales(self) -> List:
+        """
+        Check all scales for consensus and condense.
+
+        Returns:
+            List of newly formed meta-agents
+        """
+        new_meta_agents = []
+
+        # Check each scale (except max scale)
+        for scale in sorted(self.system.agents.keys()):
+            active_at_scale = self.system.get_active_agents_at_scale(scale)
+
+            if len(active_at_scale) < self.config.min_cluster_size:
+                continue
+
+            # Detect and condense
+            new_agents = self.system.auto_detect_and_condense(
+                scale=scale,
+                kl_threshold=self.config.consensus_kl_threshold,
+                min_cluster_size=self.config.min_cluster_size
+            )
+
+            new_meta_agents.extend(new_agents)
+
+        return new_meta_agents
+
+    def _record_metrics(self, metrics: Dict):
+        """Record metrics to history."""
+        self.metrics_history['step'].append(metrics['step'])
+        self.metrics_history['n_agents_per_scale'].append(metrics['n_agents'].copy())
+        self.metrics_history['n_active_per_scale'].append(metrics['n_active'].copy())
+        self.metrics_history['priors_updated'].append(metrics['n_priors_updated'])
+        self.metrics_history['updates_applied'].append(metrics['n_updates_applied'])
+        self.metrics_history['condensations'].append(metrics['n_condensations'])
+
+    def evolve(self,
+              n_steps: int,
+              learning_rate: float = 0.01,
+              compute_gradients_fn: Optional[callable] = None,
+              verbose: bool = True) -> Dict:
+        """
+        Run hierarchical evolution for multiple steps.
+
+        Args:
+            n_steps: Number of evolution steps
+            learning_rate: Learning rate for updates
+            compute_gradients_fn: Custom gradient computation function
+            verbose: Print progress
+
+        Returns:
+            Final metrics and history
+        """
+        if verbose:
+            print(f"\n{'='*70}")
+            print(f"HIERARCHICAL EVOLUTION: {n_steps} steps")
+            print(f"{'='*70}\n")
+            print(self.system.summary())
+            print()
+
+        for step in range(n_steps):
+            metrics = self.evolve_step(learning_rate, compute_gradients_fn)
+
+            if verbose and (step % 10 == 0 or metrics['n_condensations'] > 0):
+                self._print_step_summary(metrics)
+
+        if verbose:
+            print(f"\n{'='*70}")
+            print("Evolution complete")
+            print(f"{'='*70}\n")
+            print(self.system.summary())
+
+        return {
+            'metrics_history': self.metrics_history,
+            'final_state': self.system.summary(),
+            'condensation_events': self.system.condensation_events
+        }
+
+    def _print_step_summary(self, metrics: Dict):
+        """Print concise step summary."""
+        scales_str = ', '.join([
+            f"ζ{s}:{metrics['n_active'][s]}"
+            for s in sorted(metrics['n_active'].keys())
+        ])
+
+        info_mean = np.mean(metrics['info_changes']) if metrics['info_changes'] else 0.0
+
+        msg = f"Step {metrics['step']:4d}: [{scales_str}] "
+        msg += f"updated={metrics['n_updates_applied']:3d} "
+        msg += f"priors={metrics['n_priors_updated']:2d} "
+        msg += f"ΔI={info_mean:.3f}"
+
+        if metrics['n_condensations'] > 0:
+            msg += f" ⚡ CONDENSED {metrics['n_condensations']} clusters!"
+
+        print(msg)
+
+
+# =============================================================================
+# Convenience Functions
+# =============================================================================
+
+def evolve_hierarchical_system(system: MultiScaleSystem,
+                               n_steps: int,
+                               learning_rate: float = 0.01,
+                               config: Optional[HierarchicalConfig] = None,
+                               verbose: bool = True) -> Dict:
+    """
+    Convenience function to evolve a hierarchical system.
+
+    Args:
+        system: MultiScaleSystem to evolve
+        n_steps: Number of steps
+        learning_rate: Learning rate
+        config: Evolution configuration
+        verbose: Print progress
+
+    Returns:
+        Evolution results with metrics history
+
+    Example:
+        >>> system = MultiScaleSystem(base_manifold)
+        >>> # Add base agents...
+        >>> results = evolve_hierarchical_system(system, n_steps=100)
+    """
+    engine = HierarchicalEvolutionEngine(system, config)
+    return engine.evolve(n_steps, learning_rate, verbose=verbose)
+
+
+def create_and_evolve_demo(n_base_agents: int = 12,
+                           n_steps: int = 50,
+                           K: int = 3) -> Dict:
+    """
+    Create and evolve a demo hierarchical system.
+
+    Args:
+        n_base_agents: Number of base agents to create
+        n_steps: Evolution steps
+        K: Latent dimension
+
+    Returns:
+        Evolution results
+    """
+    from geometry.geometry_base import BaseManifold, TopologyType
+    from config import AgentConfig
+
+    # Create base manifold (0D transformers)
+    base_manifold = BaseManifold(shape=(), topology=TopologyType.FLAT)
+
+    # Create system
+    system = MultiScaleSystem(base_manifold)
+
+    # Add base agents
+    agent_config = AgentConfig(
+        K=K,
+        spatial_shape=(),
+        lambda_self=1.0,
+        lambda_belief_align=1.0,
+        lambda_prior_align=0.5
+    )
+
+    print(f"Creating {n_base_agents} base agents...")
+    for i in range(n_base_agents):
+        system.add_base_agent(agent_config, agent_id=f"agent_{i}")
+
+    # Configure evolution
+    config = HierarchicalConfig(
+        enable_top_down_priors=True,
+        enable_bottom_up_obs=True,
+        enable_timescale_filtering=True,
+        consensus_check_interval=10,
+        consensus_kl_threshold=0.05
+    )
+
+    # Evolve
+    results = evolve_hierarchical_system(
+        system,
+        n_steps=n_steps,
+        learning_rate=0.01,
+        config=config,
+        verbose=True
+    )
+
+    return results

@@ -103,14 +103,14 @@ class MetaAgentDescriptor:
 class HierarchicalAgent(Agent):
     """
     Extended agent with hierarchical awareness.
-    
+
     Can be either:
     - Base agent (scale ζ=0)
     - Meta-agent (scale ζ≥1) with renormalized fields
-    
+
     Fields (μ_q, Σ_q, μ_p, Σ_p, φ) are smooth sections over support region.
     """
-    
+
     def __init__(self,
                  scale: int,
                  local_index: int,
@@ -118,24 +118,131 @@ class HierarchicalAgent(Agent):
                  meta_descriptor: Optional[MetaAgentDescriptor] = None,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         # Scale identification
         self.scale = scale
         self.local_index = local_index
         self.scale_index = ScaleIndex(scale, local_index)
-        
+
         # Hierarchical structure
         self.constituent_indices = constituent_indices or []
         self.is_meta = len(self.constituent_indices) > 0
         self.meta = meta_descriptor
-        
+
+        # Parent/child relationships for cross-scale dynamics
+        self.parent_meta = None  # Meta-agent this agent belongs to (if any)
+        self.constituents = []   # Constituent agents (if this is a meta-agent)
+
         # Activity status (can be deactivated when absorbed into meta-agent)
         self.is_active = True
-    
+
+        # Timescale separation (τ_ζ = 10^ζ bits)
+        self.info_accumulator = 0.0  # Accumulated information change ΔI
+        self.timescale_threshold = 10.0 ** scale  # Update threshold (bits)
+
+    def update_prior_from_parent(self):
+        """
+        Top-down: Update prior from parent meta-agent's belief.
+
+        p_i^(ζ) ← q_M^(ζ+1)
+
+        This creates the downward flow of information: meta-agent beliefs
+        become constituent priors.
+        """
+        if self.parent_meta is None or not self.parent_meta.is_active:
+            return  # No parent or parent inactive
+
+        # Transport parent's belief to this agent's frame
+        omega = compute_transport(
+            self.gauge.phi,
+            self.parent_meta.gauge.phi,
+            self.generators,
+            validate=False
+        )
+
+        # Set prior = transported parent belief
+        self.mu_p = omega @ self.parent_meta.mu_q
+        self.Sigma_p = omega @ self.parent_meta.Sigma_q @ omega.T
+
+    def generate_observations_from_constituents(self) -> Optional[np.ndarray]:
+        """
+        Bottom-up: Generate observations from constituent beliefs.
+
+        o_M ← weighted_average({q_i : i ∈ constituents})
+
+        This creates the upward flow: constituent statistics become
+        meta-agent observations.
+
+        Returns:
+            Observation vector o_M, or None if not a meta-agent
+        """
+        if not self.is_meta or len(self.constituents) == 0:
+            return None
+
+        # Compute coherence-weighted average of constituent beliefs
+        coherence_scores = self._compute_constituent_coherence()
+        weights = coherence_scores / np.sum(coherence_scores)
+
+        # Weighted average in this agent's frame
+        o_meta = np.zeros_like(self.mu_q)
+        for agent, w in zip(self.constituents, weights):
+            if not agent.is_active:
+                continue
+
+            # Transport constituent belief to meta-agent frame
+            omega = compute_transport(
+                self.gauge.phi,
+                agent.gauge.phi,
+                self.generators,
+                validate=False
+            )
+
+            o_meta += w * (omega @ agent.mu_q)
+
+        return o_meta
+
+    def _compute_constituent_coherence(self) -> np.ndarray:
+        """Compute coherence scores for constituents."""
+        if not self.is_meta:
+            return np.array([])
+
+        n = len(self.constituents)
+        coherence_scores = np.ones(n)
+
+        # Use cached coherence if available
+        if self.meta and hasattr(self.meta, 'leadership_distribution'):
+            # Normalize leadership scores as coherence proxy
+            coherence_scores = self.meta.leadership_distribution
+            coherence_scores = coherence_scores / np.sum(coherence_scores)
+
+        return coherence_scores
+
+    def should_update(self, delta_info: float) -> bool:
+        """
+        Check if agent should update based on information accumulation.
+
+        Agents at scale ζ only update when accumulated ΔI ≥ 10^ζ bits.
+        This creates emergent timescale separation.
+
+        Args:
+            delta_info: New information change (in bits)
+
+        Returns:
+            True if accumulated info exceeds threshold
+        """
+        self.info_accumulator += delta_info
+
+        if self.info_accumulator >= self.timescale_threshold:
+            self.info_accumulator = 0.0  # Reset accumulator
+            return True
+
+        return False
+
     def __repr__(self):
         status = "active" if self.is_active else "inactive"
         meta_str = f", meta" if self.is_meta else ""
-        return f"HAgent({self.scale_index}, {status}{meta_str})"
+        parent_str = f", parent={self.parent_meta.scale_index}" if self.parent_meta else ""
+        return f"HAgent({self.scale_index}, {status}{meta_str}{parent_str})"
 
 
 # =============================================================================
@@ -200,16 +307,16 @@ class MultiScaleSystem:
                                   deactivate_constituents: bool = True) -> List[HierarchicalAgent]:
         """
         Form meta-agents at scale ζ+1 from partitions at scale ζ.
-        
+
         Args:
             source_scale: Scale ζ of constituents
             partitions: List of constituent clusters (local indices at source_scale)
                        Each cluster becomes one meta-agent at scale ζ+1
             deactivate_constituents: Mark constituents as inactive after condensation
-        
+
         Returns:
             List of newly formed meta-agents
-        
+
         Example:
             # Condense scale-0 agents [0,1,2] and [3,4] into two scale-1 meta-agents
             system.form_meta_agents_at_scale(
@@ -219,51 +326,51 @@ class MultiScaleSystem:
         """
         target_scale = source_scale + 1
         source_agents = self.agents[source_scale]
-        
+
         if not source_agents:
             raise ValueError(f"No agents at source scale {source_scale}")
-        
+
         new_meta_agents = []
-        
+
         for partition in partitions:
             if len(partition) < 2:
                 print(f"[Warning] Skipping singleton cluster: {partition}")
                 continue
-            
+
             # Get constituent agents
             constituents = [source_agents[i] for i in partition]
-            
+
             # Verify all constituents are active
             inactive = [c for c in constituents if not c.is_active]
             if inactive:
                 print(f"[Warning] Partition contains inactive agents: {inactive}")
-            
+
             # Compute coherence scores ONCE (used for all renormalization)
             coherence_scores = self._compute_coherence_scores(constituents, field_type='belief')
-            
+
             # Identify leader (agent with max χ² · C̄)
             leader_idx, leader_score, leadership_dist = self._identify_leader(constituents, coherence_scores)
-            
+
             # Compute renormalized fields via coherence-weighted gauge transport
             mu_q, Sigma_q = self._renormalize_beliefs(constituents, coherence_scores)
             mu_p, Sigma_p = self._renormalize_models(constituents, coherence_scores)
             phi = self._average_gauge_frames(constituents, coherence_scores)
-            
+
             # Create meta-agent configuration
             meta_index = len(self.agents[target_scale])
             meta_id = f"meta_{target_scale}_{meta_index}"
-            
+
             constituent_scale_indices = [
                 ScaleIndex(source_scale, i) for i in partition
             ]
-            
+
             # Compute coherence metrics from scores
             belief_coherence = np.mean(coherence_scores)
-            
+
             # Also compute model coherence separately
             model_coherence_scores = self._compute_coherence_scores(constituents, field_type='model')
             model_coherence = np.mean(model_coherence_scores)
-            
+
             meta_descriptor = MetaAgentDescriptor(
                 scale_index=ScaleIndex(target_scale, meta_index),
                 constituent_indices=constituent_scale_indices,
@@ -274,7 +381,7 @@ class MultiScaleSystem:
                 leader_score=leader_score,
                 leadership_distribution=leadership_dist
             )
-            
+
             # Create meta-agent
             meta_agent = HierarchicalAgent(
                 scale=target_scale,
@@ -286,31 +393,36 @@ class MultiScaleSystem:
                 rng=np.random.default_rng(hash(meta_id) % 2**32),
                 base_manifold=self.base_manifold
             )
-            
+
             # Initialize field structures
             meta_agent.support = self._compute_meta_support(constituents, coherence_scores)
             meta_agent.generators = constituents[0].generators
-            
+
             meta_agent._initialize_belief_cholesky()
             meta_agent._initialize_prior_cholesky()
             meta_agent._initialize_gauge()
-            
+
             # Set renormalized values (overwrites initialized values)
             meta_agent.mu_q = mu_q
             meta_agent.Sigma_q = Sigma_q  # Triggers L_q recomputation via setter
             meta_agent.mu_p = mu_p
             meta_agent.Sigma_p = Sigma_p  # Triggers L_p recomputation via setter
             meta_agent.gauge.phi = phi
-            
+
+            # ========== NEW: Set up parent-child relationships ==========
+            meta_agent.constituents = constituents.copy()
+            for agent in constituents:
+                agent.parent_meta = meta_agent
+
             # Add to system
             self.agents[target_scale].append(meta_agent)
             new_meta_agents.append(meta_agent)
-            
+
             # Deactivate constituents if requested
             if deactivate_constituents:
                 for agent in constituents:
                     agent.is_active = False
-            
+
             # Record condensation event
             self.condensation_events.append({
                 'time': self.current_time,
@@ -325,16 +437,16 @@ class MultiScaleSystem:
                     'model': model_coherence
                 }
             })
-        
+
         print(f"[Condensation ζ={source_scale}→{target_scale}] "
               f"{len(partitions)} clusters → {len(new_meta_agents)} meta-agents")
-        
+
         # Print leader info for each meta-agent
         for meta in new_meta_agents:
             leader_constituent_idx = meta.meta.constituent_indices[meta.meta.leader_index]
             print(f"  {meta.scale_index}: leader={leader_constituent_idx} "
                   f"(L={meta.meta.leader_score:.3f})")
-        
+
         return new_meta_agents
     
     # =========================================================================
@@ -821,44 +933,155 @@ class MultiScaleSystem:
     # =========================================================================
     # System Queries
     # =========================================================================
-    
+
     def get_active_agents_at_scale(self, scale: int) -> List[HierarchicalAgent]:
         """Get all active agents at a specific scale."""
         return [a for a in self.agents[scale] if a.is_active]
-    
+
     def get_all_active_agents(self) -> List[HierarchicalAgent]:
         """Get all active agents across all scales."""
         active = []
         for scale in sorted(self.agents.keys()):
             active.extend(self.get_active_agents_at_scale(scale))
         return active
-    
+
     def max_scale(self) -> int:
         """Get maximum scale present in system."""
         return max(self.agents.keys()) if self.agents else 0
-    
+
+    # =========================================================================
+    # Cross-Scale Dynamics
+    # =========================================================================
+
+    def update_cross_scale_priors(self):
+        """
+        Update all agent priors from their parent meta-agents (top-down).
+
+        For each active agent with a parent: p_i^(ζ) ← q_M^(ζ+1)
+
+        This creates top-down information flow: meta-agent beliefs
+        become constituent priors.
+        """
+        n_updated = 0
+        for agent in self.get_all_active_agents():
+            if agent.parent_meta is not None:
+                agent.update_prior_from_parent()
+                n_updated += 1
+
+        return n_updated
+
+    def compute_observation_likelihood_meta(self, meta_agent: HierarchicalAgent) -> float:
+        """
+        Compute observation likelihood for meta-agent from constituents.
+
+        E_obs = - E_q[log p(o|q)] where o = aggregate({q_i})
+
+        Args:
+            meta_agent: Meta-agent to compute observation likelihood for
+
+        Returns:
+            Observation energy contribution
+        """
+        if not meta_agent.is_meta or len(meta_agent.constituents) == 0:
+            return 0.0
+
+        # Generate observation from constituents
+        o_meta = meta_agent.generate_observations_from_constituents()
+        if o_meta is None:
+            return 0.0
+
+        # Compute Gaussian observation likelihood
+        # p(o|q) = N(o | C*mu_q, R) where C=I, R=small
+        # For simplicity: - log p(o|q) ≈ ||o - mu_q||² / (2σ²)
+
+        R_scale = 0.1  # Observation noise scale
+        residual = o_meta - meta_agent.mu_q
+        energy = 0.5 * np.sum(residual ** 2) / (R_scale ** 2)
+
+        return energy
+
+    def auto_detect_and_condense(self,
+                                 scale: int,
+                                 kl_threshold: float = 0.01,
+                                 min_cluster_size: int = 2) -> List[HierarchicalAgent]:
+        """
+        Automatically detect consensus and form meta-agents.
+
+        Uses ConsensusDetector to find agents that have reached epistemic death,
+        then condenses them into meta-agents.
+
+        Args:
+            scale: Scale to check for consensus
+            kl_threshold: KL divergence threshold for consensus
+            min_cluster_size: Minimum agents in a cluster to form meta-agent
+
+        Returns:
+            List of newly formed meta-agents
+        """
+        from meta.consensus import ConsensusDetector
+
+        agents_at_scale = self.get_active_agents_at_scale(scale)
+
+        if len(agents_at_scale) < min_cluster_size:
+            return []
+
+        # Create a temporary wrapper for consensus detection
+        class AgentWrapper:
+            """Wrapper to make agents compatible with ConsensusDetector."""
+            def __init__(self, agents_list):
+                self.agents = agents_list
+                self.n_agents = len(agents_list)
+
+        wrapper = AgentWrapper(agents_at_scale)
+
+        # Detect consensus clusters
+        detector = ConsensusDetector(
+            belief_threshold=kl_threshold,
+            model_threshold=kl_threshold,
+            use_symmetric_kl=True
+        )
+
+        clusters = detector.find_consensus_clusters(wrapper)
+
+        # Filter clusters by size
+        valid_clusters = [c for c in clusters if len(c) >= min_cluster_size]
+
+        if not valid_clusters:
+            return []
+
+        # Form meta-agents from consensus clusters
+        new_meta_agents = self.form_meta_agents_at_scale(
+            source_scale=scale,
+            partitions=valid_clusters,
+            deactivate_constituents=True
+        )
+
+        print(f"[Auto-Condensation ζ={scale}] Detected {len(valid_clusters)} consensus clusters")
+
+        return new_meta_agents
+
     def summary(self) -> str:
         """Hierarchical structure summary."""
         lines = ["Multi-Scale System Structure"]
         lines.append("=" * 60)
         lines.append(f"Base manifold: {self.base_manifold}")
         lines.append("")
-        
+
         for scale in sorted(self.agents.keys()):
             agents_at_scale = self.agents[scale]
             active_count = sum(1 for a in agents_at_scale if a.is_active)
             lines.append(f"Scale ζ={scale}: {active_count}/{len(agents_at_scale)} active")
-            
+
             if scale > 0:  # Show meta-agent structure
                 for agent in agents_at_scale[:5]:  # First 5
                     if agent.is_active and agent.is_meta:
                         lines.append(f"  {agent.scale_index}: "
                                    f"from {len(agent.constituent_indices)} constituents "
                                    f"(coherence: {agent.meta.belief_coherence:.3f})")
-        
+
         lines.append("")
         lines.append(f"Total condensation events: {len(self.condensation_events)}")
-        
+
         return "\n".join(lines)
 
 
