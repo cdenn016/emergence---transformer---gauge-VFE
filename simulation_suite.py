@@ -87,23 +87,23 @@ INFO_METRIC            = "fisher_metric"  # Information change metric
 
 
 # --- Energy weights ---
-LAMBDA_SELF            = 0.1      # Weak self-coupling (allows consensus)
-LAMBDA_BELIEF_ALIGN    = 20.0     # STRONG belief alignment (encourages consensus)
-LAMBDA_PRIOR_ALIGN     = 10.0     # Strong prior alignment
+LAMBDA_SELF            = 1      # Weak self-coupling (allows consensus)
+LAMBDA_BELIEF_ALIGN    = 1     # STRONG belief alignment (encourages consensus)
+LAMBDA_PRIOR_ALIGN     = 0     # Strong prior alignment
 LAMBDA_OBS             = 0        # No observations (pure alignment dynamics)
-LAMBDA_PHI             = 0.01     # Small gauge coupling
+LAMBDA_PHI             = 0     # Small gauge coupling
 
 
 
-KAPPA_BETA             = 0.05     # Low temperature (sharp attention)
-KAPPA_GAMMA            = 0.1
+KAPPA_BETA             = 1     # Low temperature (sharp attention)
+KAPPA_GAMMA            = 1
 
 identical_priors = IDENTICAL_PRIORS = "init_copy"    #lock, off, init_copy
 
 
-LR_MU_Q                = 0.25
+LR_MU_Q                = 0.1
 LR_SIGMA_Q             = 0.001
-LR_MU_P                = 0.25
+LR_MU_P                = 0.1
 LR_SIGMA_P             = 0.001
 LR_PHI                 = 0.1
 
@@ -765,12 +765,10 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
 
     for step in range(N_STEPS):
         # Evolve one step with hierarchical dynamics
+        # Note: HierarchicalEvolutionEngine uses single learning_rate
+        # Using LR_MU_Q as the base learning rate
         metrics = engine.evolve_step(
-            learning_rate_mu_q=LR_MU_Q,
-            learning_rate_Sigma_q=LR_SIGMA_Q,
-            learning_rate_mu_p=LR_MU_P,
-            learning_rate_Sigma_p=LR_SIGMA_P,
-            learning_rate_phi=LR_PHI,
+            learning_rate=LR_MU_Q,
             compute_gradients_fn=compute_gradients_fn
         )
 
