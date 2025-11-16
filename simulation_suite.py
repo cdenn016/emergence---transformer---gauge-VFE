@@ -748,19 +748,64 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
 
         Provides the interface needed by compute_natural_gradients WITHOUT
         re-initializing agents (which would corrupt their state).
+
+        CRITICAL: Must respect spatial overlaps to match standard training!
         """
         def __init__(self, agents_list, system_config):
             from math_utils.so3_utils import compute_transport
+            import numpy as np
 
             self.agents = agents_list  # List of active agents
             self.config = system_config  # System configuration
             self.n_agents = len(agents_list)
             self._compute_transport = compute_transport
-            # Note: No overlap computation, no cache initialization, no prior copying!
+
+            # Compute overlap relationships once (lightweight check)
+            # This ensures gradient computation matches standard training
+            self._overlaps = {}
+            overlap_threshold = 1e-3
+
+            for i in range(self.n_agents):
+                for j in range(self.n_agents):
+                    if i == j:
+                        continue
+
+                    agent_i = agents_list[i]
+                    agent_j = agents_list[j]
+
+                    # Check if both have supports
+                    if not (hasattr(agent_i, 'support') and hasattr(agent_j, 'support')):
+                        # No support info - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
+
+                    if agent_i.support is None or agent_j.support is None:
+                        # Missing support - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
+
+                    # Get masks (try both mask_continuous and chi_weight)
+                    chi_i = getattr(agent_i.support, 'mask_continuous',
+                                   getattr(agent_i.support, 'chi_weight', None))
+                    chi_j = getattr(agent_j.support, 'mask_continuous',
+                                   getattr(agent_j.support, 'chi_weight', None))
+
+                    if chi_i is None or chi_j is None:
+                        # No mask - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
+
+                    # Check if maximum possible overlap exceeds threshold
+                    max_overlap = np.max(chi_i) * np.max(chi_j)
+                    self._overlaps[(i, j)] = (max_overlap > overlap_threshold)
 
         def get_neighbors(self, agent_idx: int):
-            """Return all other agents (full connectivity for hierarchical agents)."""
-            return [j for j in range(self.n_agents) if j != agent_idx]
+            """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
+            neighbors = []
+            for j in range(self.n_agents):
+                if j != agent_idx and self._overlaps.get((agent_idx, j), True):
+                    neighbors.append(j)
+            return neighbors
 
         def compute_transport_ij(self, i: int, j: int):
             """Compute transport operator Ω_ij = exp(φ_i) exp(-φ_j)."""
