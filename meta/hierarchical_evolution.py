@@ -44,9 +44,9 @@ class HierarchicalConfig:
     min_cluster_size: int = 2
 
     # Condensation behavior
-    deactivate_constituents: bool = True  # True = categorical, False = continuous flow
-    # True:  Constituents freeze when condensed (discrete emergence)
-    # False: Constituents keep evolving (continuous renormalization flow)
+    deactivate_constituents: bool = False  # True = categorical, False = continuous flow
+    # False: Constituents keep evolving (continuous renormalization flow) ← DEFAULT
+    # True:  Constituents freeze when condensed (discrete emergence, for efficiency)
 
     # Observation likelihood for meta-agents
     lambda_obs_meta: float = 1.0  # Weight for constituent-based observations

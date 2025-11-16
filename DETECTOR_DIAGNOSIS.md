@@ -128,8 +128,37 @@ Now at step 200:
 0↔3: belief=0.006347✓
 ```
 
-## Theory Note
+## Philosophy: Continuous Flow (Default Behavior)
 
+**"Atoms in proteins don't stop evolving when you emerge!"**
+
+The system now defaults to **continuous renormalization flow** where constituents keep evolving after condensation:
+
+- ✓ Lower scales remain active (like atoms in molecules)
+- ✓ Meta-agents track renormalized statistics
+- ✓ Bidirectional coupling emerges naturally:
+  - **Bottom-up**: Meta-agent observes constituents
+  - **Top-down**: Constituents get priors from meta-agent
+- ✓ Like Wilson RG with continuous scale evolution
+
+This is the physically correct model:
+- Water molecules don't freeze when ice forms - they organize
+- Neurons keep firing as consciousness emerges
+- Quarks keep fluctuating inside protons
+
+**Example**: After condensation at step 10:
+```
+Before: 5 agents at scale 0
+After:  3 agents at scale 0 (still evolving!) + 1 meta-agent at scale 1
+Total:  4 active agents (not 4 frozen + 1 active)
+```
+
+The meta-agent isn't a replacement - it's a **renormalized view** of the still-evolving constituents!
+
+## Theory Notes
+
+**Epistemic Death vs Alignment**:
 The detector looks for **epistemic death** (consensus), not misalignment. When "alignment plummets" (agents diverge), this actually makes condensation **less likely**, not more likely. The system is working as designed—meta-agents only form when there's strong consensus.
 
-With **identical priors** (vanilla AIF), only beliefs matter for consensus. Checking model KL after gauge transport is meaningless because it measures gauge frame differences, not true model differences.
+**Identical Priors** (vanilla AIF):
+With `identical_priors` mode, only beliefs matter for consensus. Checking model KL after gauge transport is meaningless because it measures gauge frame differences, not true model differences.
