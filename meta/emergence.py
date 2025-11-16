@@ -1164,11 +1164,38 @@ class MultiScaleSystem:
             List of newly formed meta-agents
         """
         from meta.consensus import ConsensusDetector
+        from math_utils.numerical_utils import kl_gaussian
 
         agents_at_scale = self.get_active_agents_at_scale(scale)
 
         if len(agents_at_scale) < min_cluster_size:
             return []
+
+        # DIAGNOSTIC: Show pairwise KL divergences
+        print(f"    Pairwise belief KL divergences (threshold={kl_threshold:.4f}):")
+        for i in range(min(len(agents_at_scale), 5)):  # Show first 5 pairs
+            for j in range(i+1, min(len(agents_at_scale), 5)):
+                agent_i = agents_at_scale[i]
+                agent_j = agents_at_scale[j]
+
+                # Compute transport
+                omega_ij = compute_transport(
+                    agent_i.gauge.phi,
+                    agent_j.gauge.phi,
+                    agent_i.generators,
+                    validate=False
+                )
+
+                # Transport j's belief to i's frame
+                mu_j_t = omega_ij @ agent_j.mu_q
+                Sigma_j_t = omega_ij @ agent_j.Sigma_q @ omega_ij.T
+
+                try:
+                    kl_ij = kl_gaussian(agent_i.mu_q, agent_i.Sigma_q, mu_j_t, Sigma_j_t)
+                    status = "✓" if kl_ij < kl_threshold else "✗"
+                    print(f"      {i}↔{j}: KL={kl_ij:.6f} {status}")
+                except:
+                    print(f"      {i}↔{j}: KL=ERROR")
 
         # Create a temporary wrapper for consensus detection
         class AgentWrapper:

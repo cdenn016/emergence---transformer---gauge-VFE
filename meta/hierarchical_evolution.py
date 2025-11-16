@@ -336,12 +336,21 @@ class HierarchicalEvolutionEngine:
         """
         new_meta_agents = []
 
+        # DIAGNOSTIC: Show detector status
+        print(f"\n[Step {self.step_count}] 🔍 Consensus check (interval={self.config.consensus_check_interval})")
+
         # Check each scale (except max scale)
         for scale in sorted(self.system.agents.keys()):
             active_at_scale = self.system.get_active_agents_at_scale(scale)
+            total_at_scale = len(self.system.agents[scale])
+
+            print(f"  Scale {scale}: {len(active_at_scale)}/{total_at_scale} active", end="")
 
             if len(active_at_scale) < self.config.min_cluster_size:
+                print(f" → SKIP (need >={self.config.min_cluster_size})")
                 continue
+
+            print(f" → checking consensus...")
 
             # Detect and condense
             new_agents = self.system.auto_detect_and_condense(
@@ -350,7 +359,15 @@ class HierarchicalEvolutionEngine:
                 min_cluster_size=self.config.min_cluster_size
             )
 
+            if new_agents:
+                print(f"    ✨ Formed {len(new_agents)} meta-agent(s)!")
+            else:
+                print(f"    → No consensus (KL > {self.config.consensus_kl_threshold})")
+
             new_meta_agents.extend(new_agents)
+
+        if not new_meta_agents:
+            print(f"  Result: No condensations this step")
 
         return new_meta_agents
 
