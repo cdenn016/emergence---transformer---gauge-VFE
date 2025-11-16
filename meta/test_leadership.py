@@ -21,14 +21,15 @@ Date: November 2025
 """
 
 import numpy as np
-from emergence import MultiScaleSystem, print_leadership_summary
-from geometry.geometry_base import PointManifold
+from meta.emergence import MultiScaleSystem, print_leadership_summary
+from geometry.geometry_base import BaseManifold, TopologyType
 from config import AgentConfig
 
 
 def create_test_system():
     """Create a simple test system with 6 agents."""
-    manifold = PointManifold()
+    # 0D manifold for transformers (particles)
+    manifold = BaseManifold(shape=(), topology=TopologyType.FLAT)
     system = MultiScaleSystem(manifold)
     
     # Add 6 base agents
