@@ -584,6 +584,93 @@ def run_initial_diagnostics(system, output_dir: Path):
 
 
 
+# =============================================================================
+# Gradient System Adapter (for hierarchical training compatibility)
+# =============================================================================
+
+class _GradientSystemAdapter:
+    """
+    Minimal adapter to make MultiScaleSystem compatible with gradient engine.
+
+    Provides the interface needed by compute_natural_gradients WITHOUT
+    re-initializing agents (which would corrupt their state).
+
+    CRITICAL: Must respect spatial overlaps to match standard training!
+    """
+    def __init__(self, agents_list, system_config):
+        from math_utils.so3_utils import compute_transport
+        import numpy as np
+
+        self.agents = agents_list  # List of active agents
+        self.config = system_config  # System configuration
+        self.n_agents = len(agents_list)
+        self._compute_transport = compute_transport
+
+        # Compute overlap relationships once (lightweight check)
+        # This ensures gradient computation matches standard training
+        self._overlaps = {}
+        overlap_threshold = 1e-3
+
+        for i in range(self.n_agents):
+            for j in range(self.n_agents):
+                if i == j:
+                    continue
+
+                agent_i = agents_list[i]
+                agent_j = agents_list[j]
+
+                # Check if both have supports
+                if not (hasattr(agent_i, 'support') and hasattr(agent_j, 'support')):
+                    # No support info - assume overlap
+                    self._overlaps[(i, j)] = True
+                    continue
+
+                if agent_i.support is None or agent_j.support is None:
+                    # Missing support - assume overlap
+                    self._overlaps[(i, j)] = True
+                    continue
+
+                # Get masks (try both mask_continuous and chi_weight)
+                chi_i = getattr(agent_i.support, 'mask_continuous',
+                               getattr(agent_i.support, 'chi_weight', None))
+                chi_j = getattr(agent_j.support, 'mask_continuous',
+                               getattr(agent_j.support, 'chi_weight', None))
+
+                if chi_i is None or chi_j is None:
+                    # No mask - assume overlap
+                    self._overlaps[(i, j)] = True
+                    continue
+
+                # CRITICAL: Match MultiAgentSystem's two-check overlap logic
+                # Check 1: Upper bound (product of maxes)
+                max_overlap = np.max(chi_i) * np.max(chi_j)
+                if max_overlap < overlap_threshold:
+                    self._overlaps[(i, j)] = False
+                    continue
+
+                # Check 2: Actual overlap (max of products)
+                chi_ij = chi_i * chi_j  # Element-wise product
+                has_overlap = np.max(chi_ij) >= overlap_threshold
+                self._overlaps[(i, j)] = has_overlap
+
+    def get_neighbors(self, agent_idx: int):
+        """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
+        neighbors = []
+        for j in range(self.n_agents):
+            if j != agent_idx and self._overlaps.get((agent_idx, j), True):
+                neighbors.append(j)
+        return neighbors
+
+    def compute_transport_ij(self, i: int, j: int):
+        """Compute transport operator Ω_ij = exp(φ_i) exp(-φ_j)."""
+        agent_i = self.agents[i]
+        agent_j = self.agents[j]
+        return self._compute_transport(
+            agent_i.gauge.phi,
+            agent_j.gauge.phi,
+            agent_i.generators,
+            validate=False
+        )
 
 
 def run_training(system, output_dir: Path):
@@ -613,7 +700,25 @@ def run_training(system, output_dir: Path):
     print()
 
     trainer = Trainer(system, training_cfg)
-    
+
+    # DEBUG: Check initial energy breakdown for Path A
+    from free_energy_clean import compute_total_free_energy
+    energies_initial = compute_total_free_energy(system)
+    print(f"\n{'='*70}")
+    print(f"PATH A (Standard) - Initial Energy Breakdown")
+    print(f"{'='*70}")
+    print(f"  Self energy:      {energies_initial.self_energy:12.6f}")
+    print(f"  Belief align:     {energies_initial.belief_align:12.6f}")
+    print(f"  Prior align:      {energies_initial.prior_align:12.6f}")
+    print(f"  Observations:     {energies_initial.observations:12.6f}")
+    print(f"  {'─'*70}")
+    print(f"  TOTAL:            {energies_initial.total:12.6f}")
+    print(f"\n  Prior check (first 2 agents):")
+    for i in range(min(2, system.n_agents)):
+        agent = system.agents[i]
+        print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
+    print(f"{'='*70}\n")
+
     history = trainer.train()
 
     # Normalize history to a plain dict for saving/plotting
@@ -763,90 +868,8 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         'emergence_events': []
     }
 
-    class _GradientSystemAdapter:
-        """
-        Minimal adapter to make MultiScaleSystem compatible with gradient engine.
-
-        Provides the interface needed by compute_natural_gradients WITHOUT
-        re-initializing agents (which would corrupt their state).
-
-        CRITICAL: Must respect spatial overlaps to match standard training!
-        """
-        def __init__(self, agents_list, system_config):
-            from math_utils.transport import compute_transport
-            import numpy as np
-
-            self.agents = agents_list  # List of active agents
-            self.config = system_config  # System configuration
-            self.n_agents = len(agents_list)
-            self._compute_transport = compute_transport
-
-            # Compute overlap relationships once (lightweight check)
-            # This ensures gradient computation matches standard training
-            self._overlaps = {}
-            overlap_threshold = 1e-3
-
-            for i in range(self.n_agents):
-                for j in range(self.n_agents):
-                    if i == j:
-                        continue
-
-                    agent_i = agents_list[i]
-                    agent_j = agents_list[j]
-
-                    # Check if both have supports
-                    if not (hasattr(agent_i, 'support') and hasattr(agent_j, 'support')):
-                        # No support info - assume overlap
-                        self._overlaps[(i, j)] = True
-                        continue
-
-                    if agent_i.support is None or agent_j.support is None:
-                        # Missing support - assume overlap
-                        self._overlaps[(i, j)] = True
-                        continue
-
-                    # Get masks (try both mask_continuous and chi_weight)
-                    chi_i = getattr(agent_i.support, 'mask_continuous',
-                                   getattr(agent_i.support, 'chi_weight', None))
-                    chi_j = getattr(agent_j.support, 'mask_continuous',
-                                   getattr(agent_j.support, 'chi_weight', None))
-
-                    if chi_i is None or chi_j is None:
-                        # No mask - assume overlap
-                        self._overlaps[(i, j)] = True
-                        continue
-
-                    # CRITICAL: Match MultiAgentSystem's two-check overlap logic
-                    # Check 1: Upper bound (product of maxes)
-                    max_overlap = np.max(chi_i) * np.max(chi_j)
-                    if max_overlap < overlap_threshold:
-                        self._overlaps[(i, j)] = False
-                        continue
-
-                    # Check 2: Actual overlap (max of products)
-                    chi_ij = chi_i * chi_j  # Element-wise product
-                    has_overlap = np.max(chi_ij) >= overlap_threshold
-                    self._overlaps[(i, j)] = has_overlap
-
-        def get_neighbors(self, agent_idx: int):
-            """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
-            neighbors = []
-            for j in range(self.n_agents):
-                # CRITICAL: Default to False (no overlap) like MultiAgentSystem.has_overlap
-                if j != agent_idx and self._overlaps.get((agent_idx, j), False):
-                    neighbors.append(j)
-            return neighbors
-
-        def compute_transport_ij(self, i: int, j: int):
-            """Compute transport operator Ω_ij = exp(φ_i) exp(-φ_j)."""
-            agent_i = self.agents[i]
-            agent_j = self.agents[j]
-            return self._compute_transport(
-                agent_i.gauge.phi,
-                agent_j.gauge.phi,
-                agent_i.generators,
-                validate=False
-            )
+    # NOTE: _GradientSystemAdapter now defined at module level (line 591)
+    # so it can be imported for testing
 
     def compute_gradients_fn(system):
         """Wrapper to compute gradients for all active agents."""
@@ -900,6 +923,23 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         # Compute energy BEFORE updates (like Trainer does)
         energies = compute_total_free_energy(temp_system)
         total_energy = energies.total
+
+        # DEBUG: Print detailed breakdown for first step (Path B)
+        if step == 0:
+            print(f"\n{'='*70}")
+            print(f"PATH B (Hierarchical) - Initial Energy Breakdown")
+            print(f"{'='*70}")
+            print(f"  Self energy:      {energies.self_energy:12.6f}")
+            print(f"  Belief align:     {energies.belief_align:12.6f}")
+            print(f"  Prior align:      {energies.prior_align:12.6f}")
+            print(f"  Observations:     {energies.observations:12.6f}")
+            print(f"  {'─'*70}")
+            print(f"  TOTAL:            {energies.total:12.6f}")
+            print(f"\n  Prior check (first 2 agents):")
+            for i in range(min(2, len(active_agents))):
+                agent = active_agents[i]
+                print(f"    Agent {i}: μ_p={agent.mu_p[:3]}, μ_q={agent.mu_q[:3]}")
+            print(f"{'='*70}\n")
 
         # Wrapper that reuses the adapter we just created
         def compute_grads_with_adapter(system):
