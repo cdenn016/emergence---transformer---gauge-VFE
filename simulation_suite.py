@@ -509,14 +509,16 @@ def build_system(agents, rng: np.random.Generator):
         if system_cfg.identical_priors in ("init_copy", "lock"):
             base_agents = system.agents[0]  # Scale 0 agents
             if len(base_agents) > 0:
-                # Compute shared prior from all base agents
+                # Compute shared prior from all base agents (using L_p to match MultiAgentSystem!)
                 mu_p_sum = sum(a.mu_p for a in base_agents) / len(base_agents)
-                Sigma_p_sum = sum(a.Sigma_p for a in base_agents) / len(base_agents)
+                L_p_sum = sum(a.L_p for a in base_agents) / len(base_agents)
 
-                # Apply to all base agents
+                # Apply to all base agents (set L_p, not Sigma_p, to match MultiAgentSystem!)
                 for a in base_agents:
                     a.mu_p = mu_p_sum.copy()
-                    a.Sigma_p = Sigma_p_sum.copy()
+                    a.L_p = L_p_sum.copy()
+                    if hasattr(a, 'invalidate_caches'):
+                        a.invalidate_caches()
 
         print(f"  Created MultiScaleSystem with {len(system.agents[0])} base agents")
     else:
@@ -860,23 +862,30 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print("Training with emergence enabled...")
     print("-" * 70)
 
+    # Reuse adapter to avoid recreating overlaps
+    from free_energy_clean import compute_total_free_energy
+
     for step in range(N_STEPS):
-        # Compute energy BEFORE updates (like Trainer does)
+        # Get active agents
         active_agents = multi_scale_system.get_all_active_agents()
-        if len(active_agents) > 0:
-            temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
-            from free_energy_clean import compute_total_free_energy
-            energies = compute_total_free_energy(temp_system)
-            total_energy = energies.total
-        else:
-            total_energy = 0.0
+        if len(active_agents) == 0:
+            break
+
+        # Create adapter ONCE per step (reused for both energy and gradients)
+        temp_system = _GradientSystemAdapter(active_agents, multi_scale_system.system_config)
+
+        # Compute energy BEFORE updates (like Trainer does)
+        energies = compute_total_free_energy(temp_system)
+        total_energy = energies.total
+
+        # Wrapper that reuses the adapter we just created
+        def compute_grads_with_adapter(system):
+            return compute_natural_gradients(temp_system)
 
         # Evolve one step with hierarchical dynamics
-        # Note: HierarchicalEvolutionEngine uses single learning_rate
-        # Using LR_MU_Q as the base learning rate
         metrics = engine.evolve_step(
             learning_rate=LR_MU_Q,
-            compute_gradients_fn=compute_gradients_fn
+            compute_gradients_fn=compute_grads_with_adapter
         )
 
         # Convert dict metrics to scalars
