@@ -742,16 +742,49 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         'emergence_events': []
     }
 
+    class _GradientSystemAdapter:
+        """
+        Minimal adapter to make MultiScaleSystem compatible with gradient engine.
+
+        Provides the interface needed by compute_natural_gradients WITHOUT
+        re-initializing agents (which would corrupt their state).
+        """
+        def __init__(self, agents_list, system_config):
+            from math_utils.so3_utils import compute_transport
+
+            self.agents = agents_list  # List of active agents
+            self.config = system_config  # System configuration
+            self.n_agents = len(agents_list)
+            self._compute_transport = compute_transport
+            # Note: No overlap computation, no cache initialization, no prior copying!
+
+        def get_neighbors(self, agent_idx: int):
+            """Return all other agents (full connectivity for hierarchical agents)."""
+            return [j for j in range(self.n_agents) if j != agent_idx]
+
+        def compute_transport_ij(self, i: int, j: int):
+            """Compute transport operator Ω_ij = exp(φ_i) exp(-φ_j)."""
+            agent_i = self.agents[i]
+            agent_j = self.agents[j]
+            return self._compute_transport(
+                agent_i.gauge.phi,
+                agent_j.gauge.phi,
+                agent_i.generators,
+                validate=False
+            )
+
     def compute_gradients_fn(system):
         """Wrapper to compute gradients for all active agents."""
         active_agents = system.get_all_active_agents()
         if len(active_agents) == 0:
             return []
 
-        # Build temporary MultiAgentSystem for gradient computation
-        # (gradient engine expects MultiAgentSystem)
-        from agent.system import MultiAgentSystem
-        temp_system = MultiAgentSystem(active_agents, system.system_config)
+        # Create minimal adapter that provides ONLY what gradient engine needs:
+        # - system.agents (list)
+        # - system.config (SystemConfig)
+        # - system.n_agents (int)
+        # WITHOUT re-initializing/corrupting agent state!
+        temp_system = _GradientSystemAdapter(active_agents, system.system_config)
 
         # Compute gradients (returns List[AgentGradients] in same order)
         gradients = compute_natural_gradients(temp_system)
