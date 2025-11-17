@@ -60,8 +60,7 @@ from typing import Dict, List, Tuple
 from transformer.config_publication import PUBLICATION_CONFIG
 from transformer.model import GaugeTransformerLM
 from transformer.data import create_char_dataloaders
-from transformer.train_fast import FastTrainer, FastTrainingConfig
-from transformer.train import compute_free_energy_loss
+from transformer.train import FastTrainer, FastTrainingConfig, compute_free_energy_loss
 
 
 class PublicationMetricsTracker:
