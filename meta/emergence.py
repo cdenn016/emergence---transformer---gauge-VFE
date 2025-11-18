@@ -378,15 +378,20 @@ class MultiScaleSystem:
         etc.
     """
     
-    def __init__(self, base_manifold: BaseManifold):
+    def __init__(self, base_manifold: BaseManifold, max_emergence_levels: Optional[int] = None):
         self.base_manifold = base_manifold
-        
+
         # agents[scale] = list of agents at that scale
         self.agents: Dict[int, List[HierarchicalAgent]] = defaultdict(list)
-        
+
         # Track condensation history
         self.condensation_events = []
         self.current_time = 0
+
+        # Hard cap on emergence levels to prevent performance degradation
+        # None = unlimited (not recommended), otherwise max scale allowed
+        # e.g., max_emergence_levels=3 allows scales 0, 1, 2, 3
+        self.max_emergence_levels = max_emergence_levels
     
     def add_base_agent(self, agent_config: AgentConfig, agent_id: str = None) -> HierarchicalAgent:
         """
@@ -461,6 +466,12 @@ class MultiScaleSystem:
 
         if not source_agents:
             raise ValueError(f"No agents at source scale {source_scale}")
+
+        # Check emergence level cap
+        if self.max_emergence_levels is not None and target_scale > self.max_emergence_levels:
+            print(f"[Level Cap] Cannot form meta-agents at scale {target_scale} "
+                  f"(max allowed: {self.max_emergence_levels}). Skipping condensation.")
+            return []
 
         new_meta_agents = []
 
