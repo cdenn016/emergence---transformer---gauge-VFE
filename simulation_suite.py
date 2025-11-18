@@ -487,7 +487,9 @@ def build_system(agents, rng: np.random.Generator):
 
         # Create multi-scale system
         manifold = agents[0].base_manifold  # All agents share same manifold
-        system = MultiScaleSystem(manifold)
+        # Set max emergence levels to 4 (scales 0-4) to prevent performance degradation
+        # This allows: base (0), groups (1), communities (2), societies (3), meta-societies (4)
+        system = MultiScaleSystem(manifold, max_emergence_levels=4)
         system.system_config = system_cfg
 
         # Add agents as base agents (scale 0)
