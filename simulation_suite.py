@@ -101,17 +101,6 @@ HYPERPRIOR_DECAY        = 0.3      # Exponential decay: λ_k = LAMBDA_PRIOR_ALIG
                                    # k=2: great-grandparent (decay^2 strength)
 
 
-# --- Adaptive Learning Rates (1-bit discretization) ---
-# Each gradient descent step changes variational free energy F by ~1 bit
-# This creates emergent timescale separation:
-#   - Scale-0 agents: 1 bit/step (fundamental quantum of change)
-#   - Scale-1 meta-agents: Need ~N steps to accumulate 1 bit (N = # constituents)
-#   - Scale-2: Even slower (~N² steps)
-# "Differences that make a difference" naturally get larger at higher scales
-ENABLE_ADAPTIVE_LR          = False  # Adapt lr so ΔF ≈ 1 bit per step
-TARGET_FREE_ENERGY_BITS     = 1.0    # Target free energy change per step (in bits)
-
-
 # --- Energy weights: Model cultural/hierarchical tension ---
 # Analogy: Individual in a culture facing pressure from multiple sources
 # - SELF: Individual agency/identity (resistance to conformity)
@@ -894,10 +883,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         lr_sigma_q=LR_SIGMA_Q,
         lr_mu_p=LR_MU_P,
         lr_sigma_p=LR_SIGMA_P,
-        lr_phi=LR_PHI,
-        # Adaptive learning rates (1-bit discretization)
-        enable_adaptive_lr=ENABLE_ADAPTIVE_LR,
-        target_free_energy_change_bits=TARGET_FREE_ENERGY_BITS
+        lr_phi=LR_PHI
     )
 
     # Create participatory monitor for validation

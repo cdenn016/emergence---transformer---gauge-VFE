@@ -63,10 +63,6 @@ class HierarchicalConfig:
     lr_sigma_p: float = 0.001  # Much smaller than mu!
     lr_phi: float = 0.1
 
-    # Adaptive learning rates (1-bit discretization)
-    enable_adaptive_lr: bool = False  # Adapt lr so each step changes F by ~1 bit
-    target_free_energy_change_bits: float = 1.0  # Target ΔF per step (in bits)
-
 
 class HierarchicalEvolutionEngine:
     """
@@ -187,21 +183,9 @@ class HierarchicalEvolutionEngine:
         # Phase 3: Apply Updates with Timescale Filtering
         # =====================================================================
         if gradients is not None:
-            # Adaptive learning rate (1-bit discretization)
-            if self.config.enable_adaptive_lr:
-                adapted_lr = self._compute_adaptive_lr(
-                    gradients,
-                    learning_rate,
-                    self.config.target_free_energy_change_bits
-                )
-                metrics['lr_adapted'] = adapted_lr
-                metrics['lr_base'] = learning_rate
-            else:
-                adapted_lr = learning_rate
-
             n_applied = self._apply_filtered_updates(
                 gradients,
-                adapted_lr,
+                learning_rate,
                 metrics
             )
             metrics['n_updates_applied'] = n_applied
@@ -513,71 +497,6 @@ class HierarchicalEvolutionEngine:
             msg += f" ⚡ CONDENSED {metrics['n_condensations']} clusters!"
 
         print(msg)
-
-    def _compute_adaptive_lr(self,
-                            gradients: List,
-                            base_lr: float,
-                            target_bits: float) -> float:
-        """
-        Compute adaptive learning rate so ΔF ≈ target_bits.
-
-        For gradient descent on variational free energy F:
-            ΔF ≈ -lr · ||∇F||²  (to first order)
-
-        To achieve ΔF ≈ target_bits · ln(2) [converting bits to nats]:
-            lr = target_bits · ln(2) / ||∇F||²
-
-        Args:
-            gradients: List of AgentGradients
-            base_lr: Base learning rate (used as max cap and fallback)
-            target_bits: Target free energy change in bits
-
-        Returns:
-            Adapted learning rate
-        """
-        if not gradients:
-            return base_lr
-
-        # Compute total gradient norm² across all agents
-        total_grad_norm_sq = 0.0
-
-        for grad in gradients:
-            # mu_q gradient contribution
-            if hasattr(grad, 'mu_q') and grad.mu_q is not None:
-                total_grad_norm_sq += np.sum(grad.mu_q ** 2)
-
-            # Sigma_q gradient contribution (Frobenius norm squared)
-            if hasattr(grad, 'Sigma_q') and grad.Sigma_q is not None:
-                total_grad_norm_sq += np.sum(grad.Sigma_q ** 2)
-
-            # mu_p gradient contribution
-            if hasattr(grad, 'mu_p') and grad.mu_p is not None:
-                total_grad_norm_sq += np.sum(grad.mu_p ** 2)
-
-            # Sigma_p gradient contribution
-            if hasattr(grad, 'Sigma_p') and grad.Sigma_p is not None:
-                total_grad_norm_sq += np.sum(grad.Sigma_p ** 2)
-
-            # phi gradient contribution
-            if hasattr(grad, 'phi') and grad.phi is not None:
-                total_grad_norm_sq += np.sum(grad.phi ** 2)
-
-        # Safety check
-        if total_grad_norm_sq < 1e-12:
-            # Gradients are essentially zero, use base lr
-            return base_lr
-
-        # Compute adapted learning rate
-        # ΔF ≈ -lr · ||∇F||², so lr = target_ΔF / ||∇F||²
-        target_delta_F_nats = target_bits * np.log(2)  # Convert bits to nats
-        adapted_lr = target_delta_F_nats / total_grad_norm_sq
-
-        # Cap at 10x base_lr (safety limit) and don't go below 0.01x base_lr
-        max_lr = 10 * base_lr
-        min_lr = 0.01 * base_lr
-        adapted_lr = np.clip(adapted_lr, min_lr, max_lr)
-
-        return adapted_lr
 
 
 # =============================================================================
