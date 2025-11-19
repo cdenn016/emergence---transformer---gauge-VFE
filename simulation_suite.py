@@ -82,6 +82,8 @@ CONSENSUS_THRESHOLD    = 0.05     # KL threshold for epistemic death
 CONSENSUS_CHECK_INTERVAL = 5      # Check for consensus every N steps
 MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
 MAX_SCALE              = 3        # Highest scale allowed (3 = 4 scales: 0,1,2,3) - prevents runaway emergence
+MAX_META_MEMBERSHIP    = 10       # Max constituents per meta-agent - controls exponential growth
+MAX_TOTAL_AGENTS       = 1000     # Hard cap on total agents across ALL scales
 ENABLE_CROSS_SCALE_PRIORS = False  # Top-down prior propagation (DISABLED for now)
 ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
@@ -488,8 +490,13 @@ def build_system(agents, rng: np.random.Generator):
 
         # Create multi-scale system
         manifold = agents[0].base_manifold  # All agents share same manifold
-        # Use configured max emergence levels to prevent performance degradation
-        system = MultiScaleSystem(manifold, max_emergence_levels=MAX_SCALE)
+        # Use configured caps to prevent exponential growth and performance degradation
+        system = MultiScaleSystem(
+            manifold,
+            max_emergence_levels=MAX_SCALE,
+            max_meta_membership=MAX_META_MEMBERSHIP,
+            max_total_agents=MAX_TOTAL_AGENTS
+        )
         system.system_config = system_cfg
 
         # Add agents as base agents (scale 0)
@@ -876,6 +883,8 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print(f"  Timescale sep      : {ENABLE_TIMESCALE_SEP}")
     print(f"  Cross-scale priors : {ENABLE_CROSS_SCALE_PRIORS}")
     print(f"  Max emergence levels: {multi_scale_system.max_emergence_levels}")
+    print(f"  Max meta membership: {multi_scale_system.max_meta_membership}")
+    print(f"  Max total agents   : {multi_scale_system.max_total_agents}")
     print(f"  Participatory monitor: ENABLED (validation every 10 steps)")
     print()
 
