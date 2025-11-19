@@ -63,11 +63,6 @@ class HierarchicalConfig:
     lr_sigma_p: float = 0.001  # Much smaller than mu!
     lr_phi: float = 0.1
 
-    # Adaptive learning rates (trust-region VI with 1-bit discretization)
-    enable_adaptive_lr: bool = False  # Adapt lr using trust-region: KL(q_new || q_old) ≤ ε
-    target_kl_bits: float = 1.0  # Target KL divergence per step (in bits)
-    # This constrains how much beliefs actually change (information-theoretic time)
-
 
 class HierarchicalEvolutionEngine:
     """
@@ -188,21 +183,9 @@ class HierarchicalEvolutionEngine:
         # Phase 3: Apply Updates with Timescale Filtering
         # =====================================================================
         if gradients is not None:
-            # Adaptive learning rate (trust-region VI)
-            if self.config.enable_adaptive_lr:
-                adapted_lr = self._compute_adaptive_lr(
-                    gradients,
-                    learning_rate,
-                    self.config.target_kl_bits
-                )
-                metrics['lr_adapted'] = adapted_lr
-                metrics['lr_base'] = learning_rate
-            else:
-                adapted_lr = learning_rate
-
             n_applied = self._apply_filtered_updates(
                 gradients,
-                adapted_lr,
+                learning_rate,
                 metrics
             )
             metrics['n_updates_applied'] = n_applied
@@ -514,151 +497,6 @@ class HierarchicalEvolutionEngine:
             msg += f" ⚡ CONDENSED {metrics['n_condensations']} clusters!"
 
         print(msg)
-
-    def _compute_adaptive_lr(self,
-                            gradients: List,
-                            base_lr: float,
-                            target_kl_bits: float) -> float:
-        """
-        Compute adaptive learning rate using trust-region constraint.
-
-        Trust-Region VI: Choose lr such that KL(q_{t+1} || q_t) ≈ ε bits
-
-        For Gaussian beliefs q ~ N(μ, Σ):
-            KL(q_new || q_old) = 1/2 [tr(Σ_old^{-1} Σ_new) +
-                                      (μ_old - μ_new)^T Σ_old^{-1} (μ_old - μ_new) -
-                                      K + ln(|Σ_old|/|Σ_new|)]
-
-        This is the information-theoretic measure of how much beliefs changed.
-        Defines time as "bits of belief update" (standard in VI literature).
-
-        References:
-            - Amari (1998): Natural gradient works
-            - Hoffman et al. (2013): Stochastic VI
-            - Schulman et al. (2015): TRPO (RL equivalent)
-
-        Args:
-            gradients: List of AgentGradients
-            base_lr: Base learning rate for initial trial
-            target_kl_bits: Target KL divergence (in bits)
-
-        Returns:
-            Adapted learning rate
-        """
-        if not gradients:
-            return base_lr
-
-        active_agents = self.system.get_all_active_agents()
-        if len(active_agents) == 0:
-            return base_lr
-
-        # Save current states
-        saved_states = []
-        for agent in active_agents:
-            saved_states.append({
-                'mu_q': agent.mu_q.copy(),
-                'Sigma_q': agent.Sigma_q.copy(),
-                'mu_p': agent.mu_p.copy() if hasattr(agent, 'mu_p') else None,
-                'Sigma_p': agent.Sigma_p.copy() if hasattr(agent, 'Sigma_p') else None,
-            })
-
-        # Binary search for appropriate learning rate
-        lr_candidate = base_lr
-        lr_min = 0.001 * base_lr
-        lr_max = 10.0 * base_lr
-
-        for attempt in range(5):  # Max 5 iterations
-            # Apply trial step with candidate lr
-            self._apply_filtered_updates(gradients, lr_candidate, metrics={})
-
-            # Compute total KL divergence across all agents
-            total_kl_nats = 0.0
-
-            for agent, saved in zip(active_agents, saved_states):
-                # KL(q_new || q_old) for this agent's belief
-                kl = self._kl_gaussian(
-                    agent.mu_q, agent.Sigma_q,  # new
-                    saved['mu_q'], saved['Sigma_q']  # old
-                )
-                total_kl_nats += kl
-
-            total_kl_bits = total_kl_nats / np.log(2)
-
-            # Restore states for next trial
-            for agent, saved in zip(active_agents, saved_states):
-                agent.mu_q = saved['mu_q'].copy()
-                agent.Sigma_q = saved['Sigma_q'].copy()
-                if saved['mu_p'] is not None:
-                    agent.mu_p = saved['mu_p'].copy()
-                    agent.Sigma_p = saved['Sigma_p'].copy()
-
-            # Check if we're close enough to target
-            ratio = total_kl_bits / target_kl_bits
-            if 0.7 <= ratio <= 1.3:
-                # Close enough, accept this lr
-                return lr_candidate
-
-            # Adjust search range (binary search)
-            if total_kl_bits > target_kl_bits * 1.3:
-                # Step too large, reduce lr
-                lr_max = lr_candidate
-                lr_candidate = (lr_min + lr_candidate) / 2
-            else:
-                # Step too small, increase lr
-                lr_min = lr_candidate
-                lr_candidate = (lr_candidate + lr_max) / 2
-
-        # Return best estimate after max iterations
-        return lr_candidate
-
-    def _kl_gaussian(self, mu1: np.ndarray, Sigma1: np.ndarray,
-                     mu0: np.ndarray, Sigma0: np.ndarray) -> float:
-        """
-        Compute KL(N(μ₁, Σ₁) || N(μ₀, Σ₀)) in nats.
-
-        Formula:
-            KL = 1/2 [tr(Σ₀⁻¹ Σ₁) + (μ₀-μ₁)ᵀ Σ₀⁻¹ (μ₀-μ₁) - K + ln(|Σ₀|/|Σ₁|)]
-
-        Args:
-            mu1, Sigma1: New distribution parameters
-            mu0, Sigma0: Old distribution parameters
-
-        Returns:
-            KL divergence in nats
-        """
-        K = len(mu0)
-
-        try:
-            # Compute Σ₀⁻¹
-            Sigma0_inv = np.linalg.inv(Sigma0 + 1e-8 * np.eye(K))
-
-            # Term 1: tr(Σ₀⁻¹ Σ₁)
-            term1 = np.trace(Sigma0_inv @ Sigma1)
-
-            # Term 2: (μ₀-μ₁)ᵀ Σ₀⁻¹ (μ₀-μ₁)
-            delta_mu = mu0 - mu1
-            term2 = delta_mu @ Sigma0_inv @ delta_mu
-
-            # Term 3: -K
-            term3 = -K
-
-            # Term 4: ln(|Σ₀|/|Σ₁|) = ln|Σ₀| - ln|Σ₁|
-            sign0, logdet0 = np.linalg.slogdet(Sigma0)
-            sign1, logdet1 = np.linalg.slogdet(Sigma1)
-
-            if sign0 <= 0 or sign1 <= 0:
-                # Non-positive definite, return large value
-                return 1e6
-
-            term4 = logdet0 - logdet1
-
-            kl = 0.5 * (term1 + term2 + term3 + term4)
-
-            return max(0.0, kl)  # KL should be non-negative
-
-        except np.linalg.LinAlgError:
-            # Numerical issue, return large value
-            return 1e6
 
 
 # =============================================================================
