@@ -2,9 +2,9 @@
 # ============================================================
 
 [Energy]
-LAMBDA_SELF          = 1
-LAMBDA_BELIEF_ALIGN  = 1
-LAMBDA_PRIOR_ALIGN   = 0
+LAMBDA_SELF          = 3.0
+LAMBDA_BELIEF_ALIGN  = 2.0
+LAMBDA_PRIOR_ALIGN   = 2.5
 LAMBDA_OBS           = 0
 KAPPA_BETA           = 1
 KAPPA_GAMMA          = 1
@@ -51,9 +51,9 @@ OUTSIDE_COV_SCALE    = 1000.0
 USE_SMOOTH_COV_TRANSITION = False
 
 [Energy]
-LAMBDA_SELF          = 1
-LAMBDA_BELIEF_ALIGN  = 1
-LAMBDA_PRIOR_ALIGN   = 0
+LAMBDA_SELF          = 3.0
+LAMBDA_BELIEF_ALIGN  = 2.0
+LAMBDA_PRIOR_ALIGN   = 2.5
 LAMBDA_OBS           = 0
 KAPPA_BETA           = 1
 KAPPA_GAMMA          = 1
@@ -61,10 +61,10 @@ KAPPA_GAMMA          = 1
 [Training]
 N_STEPS              = 50
 LOG_EVERY            = 1
-LR_MU_Q               = 0.1
+LR_MU_Q               = 0.08
 LR_SIGMA_Q             = 0.001
-LR_MU_P                = 0.1
-LR_SIGMA_P             = 0.001
+LR_MU_P                = 0.2
+LR_SIGMA_P             = 0.01
 LR_PHI               = 0.1
 
 [Diagnostics]

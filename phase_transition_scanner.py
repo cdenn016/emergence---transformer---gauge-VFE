@@ -256,9 +256,25 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
 
         # Create base agents
         generators = generate_so3_generators(K_latent)
+
+        # Create supports for point manifolds (required for gradient computation)
+        from agent.masking import SupportRegionSmooth
+        mask_cfg = MaskConfig()
+        supports = [
+            SupportRegionSmooth(
+                mask_binary=np.array(True),  # 0D: single point, always True
+                base_shape=(),
+                config=mask_cfg
+            )
+            for _ in range(n_agents)
+        ]
+
         for i in range(n_agents):
             # Create hierarchical agent directly (no need for regular Agent)
             hier_agent = multi_scale_system.add_base_agent(agent_cfg, agent_id=f"agent_{i}")
+
+            # Attach support (CRITICAL for gradient computation)
+            hier_agent.support = supports[i]
 
             # Initialize fields with random values
             rng = np.random.default_rng(seed + i)
@@ -333,8 +349,8 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
                 is_point_manifold = False
                 if len(agents_list) > 0:
                     agent = agents_list[0]
-                    if hasattr(agent, 'manifold') and hasattr(agent.manifold, 'shape'):
-                        is_point_manifold = (agent.manifold.shape == ())
+                    if hasattr(agent, 'base_manifold') and hasattr(agent.base_manifold, 'shape'):
+                        is_point_manifold = (agent.base_manifold.shape == ())
 
                 # Compute overlap relationships once (lightweight check)
                 # This ensures gradient computation matches standard training

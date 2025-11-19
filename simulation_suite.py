@@ -632,8 +632,8 @@ class _GradientSystemAdapter:
         is_point_manifold = False
         if len(agents_list) > 0:
             agent = agents_list[0]
-            if hasattr(agent, 'manifold') and hasattr(agent.manifold, 'shape'):
-                is_point_manifold = (agent.manifold.shape == ())
+            if hasattr(agent, 'base_manifold') and hasattr(agent.base_manifold, 'shape'):
+                is_point_manifold = (agent.base_manifold.shape == ())
 
         # Compute overlap relationships once (lightweight check)
         # This ensures gradient computation matches standard training
