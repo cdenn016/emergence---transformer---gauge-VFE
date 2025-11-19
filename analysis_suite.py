@@ -89,6 +89,94 @@ def get_mu_tracker(history):
     return None
 
 
+def filter_history_steps(history, skip_initial_steps=0):
+    """
+    Filter history to skip initial transient steps.
+
+    Args:
+        history: Either dict or TrainingHistory object
+        skip_initial_steps: Number of initial steps to skip
+
+    Returns:
+        Filtered history in same format as input
+    """
+    if history is None or skip_initial_steps <= 0:
+        return history
+
+    # Handle dict format (hierarchical training)
+    if isinstance(history, dict):
+        filtered = {}
+        for key, value in history.items():
+            if key == 'mu_tracker':
+                # Special handling for mu_tracker
+                filtered[key] = filter_mu_tracker(value, skip_initial_steps)
+            elif key == 'emergence_events':
+                # Filter emergence events by step
+                filtered[key] = [e for e in value if e.get('step', 0) >= skip_initial_steps]
+            elif isinstance(value, (list, np.ndarray)) and len(value) > 0:
+                # Filter list/array data
+                if len(value) > skip_initial_steps:
+                    filtered[key] = value[skip_initial_steps:]
+                else:
+                    filtered[key] = []
+            else:
+                # Keep non-sequence data as-is
+                filtered[key] = value
+        return filtered
+
+    # Handle TrainingHistory object
+    if hasattr(history, 'steps'):
+        from copy import deepcopy
+        filtered = deepcopy(history)
+
+        # Filter all list attributes
+        for attr in ['steps', 'total_energy', 'self_energy', 'belief_align',
+                     'prior_align', 'observations', 'grad_norm_mu_q',
+                     'grad_norm_Sigma_q', 'grad_norm_phi']:
+            if hasattr(filtered, attr):
+                value = getattr(filtered, attr)
+                if isinstance(value, list) and len(value) > skip_initial_steps:
+                    setattr(filtered, attr, value[skip_initial_steps:])
+
+        # Filter mu_tracker
+        if hasattr(filtered, 'mu_tracker') and filtered.mu_tracker is not None:
+            filtered.mu_tracker = filter_mu_tracker(filtered.mu_tracker, skip_initial_steps)
+
+        return filtered
+
+    return history
+
+
+def filter_mu_tracker(tracker, skip_initial_steps):
+    """Filter MuCenterTracking data to skip initial steps."""
+    if tracker is None or skip_initial_steps <= 0:
+        return tracker
+
+    if not hasattr(tracker, 'steps') or len(tracker.steps) <= skip_initial_steps:
+        return tracker
+
+    from copy import deepcopy
+    filtered = deepcopy(tracker)
+
+    # Filter steps
+    filtered.steps = tracker.steps[skip_initial_steps:]
+
+    # Filter per-agent data
+    if hasattr(tracker, 'mu_components'):
+        filtered.mu_components = [
+            agent_data[skip_initial_steps:] if len(agent_data) > skip_initial_steps else []
+            for agent_data in tracker.mu_components
+        ]
+
+    if hasattr(tracker, 'mu_norms'):
+        filtered.mu_norms = [
+            agent_data[skip_initial_steps:] if len(agent_data) > skip_initial_steps else []
+            for agent_data in tracker.mu_norms
+        ]
+
+    return filtered
+
+
 def normalize_history(history):
     """
     Convert TrainingHistory object to dict format for plotting.
@@ -1555,6 +1643,12 @@ def main():
         default="_results/_playground",
         help="Path to run directory (contains history.* and final_state.pkl).",
     )
+    parser.add_argument(
+        "--skip-initial-steps",
+        type=int,
+        default=0,
+        help="Skip first N steps when plotting (useful to ignore initial transients).",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -1565,13 +1659,20 @@ def main():
     print("\n" + "=" * 70)
     print(f"ENHANCED ANALYSIS SUITE – {run_dir}")
     print("=" * 70)
+    if args.skip_initial_steps > 0:
+        print(f"⏩ Skipping initial {args.skip_initial_steps} steps")
 
     out_dir = run_dir / "analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    
+
     # Load data
     history = load_history(run_dir)
+
+    # Filter to skip initial transient steps if requested
+    if args.skip_initial_steps > 0:
+        history = filter_history_steps(history, args.skip_initial_steps)
+
     history_dict = normalize_history(history)   # TrainingHistory -> dict
     system = load_system(run_dir)
     # 🔥 MIGRATE TO CHOLESKY if needed
