@@ -1204,7 +1204,7 @@ class MultiScaleSystem:
     # Cross-Scale Dynamics
     # =========================================================================
 
-    def update_cross_scale_priors(self):
+    def update_cross_scale_priors(self, enable_tower=False, max_depth=1, decay=0.3):
         """
         Update all agent priors with self-referential closure.
 
@@ -1212,15 +1212,24 @@ class MultiScaleSystem:
         1. Agents with parents: p_i^(ζ) ← q_M^(ζ+1) (from parent)
         2. Top-scale agents: p_top ← statistics(ALL agents) (strange loop!)
 
+        With Ouroboros Tower enabled:
+        - Agents receive priors from ALL ancestors, not just parent
+        - Creates non-Markovian memory of entire ancestral lineage
+
         This creates bidirectional flow:
         - Top observes collective → forms prior
-        - Prior flows down hierarchy
+        - Prior flows down hierarchy (through entire tower!)
         - Lower scales evolve → change collective
         - Top re-observes → updates prior
         - LOOP: System observes itself!
 
         NOTE: Self-referential closure only activates when hierarchy exists (max_scale > 0).
         Before meta-agents form, agents keep their existing priors.
+
+        Args:
+            enable_tower: Enable multi-scale hyperprior propagation
+            max_depth: How many ancestral levels to include
+            decay: Exponential decay for hyperprior influence
         """
         n_updated_from_parent = 0
         n_updated_from_global = 0
@@ -1230,8 +1239,12 @@ class MultiScaleSystem:
 
         for agent in self.get_all_active_agents():
             if agent.parent_meta is not None:
-                # Regular hierarchical flow: prior from parent
-                agent.update_prior_from_parent()
+                # Regular hierarchical flow: prior from parent (+ tower if enabled)
+                agent.update_prior_from_parent(
+                    enable_tower=enable_tower,
+                    max_depth=max_depth,
+                    decay=decay
+                )
                 n_updated_from_parent += 1
             elif has_hierarchy:
                 # Top-scale: self-referential closure (only when hierarchy exists!)

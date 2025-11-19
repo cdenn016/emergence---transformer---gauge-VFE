@@ -139,10 +139,14 @@ class HierarchicalEvolutionEngine:
         }
 
         # =====================================================================
-        # Phase 1: Prior Updates (Hierarchical + Self-Referential)
+        # Phase 1: Prior Updates (Hierarchical + Self-Referential + Ouroboros Tower)
         # =====================================================================
         if self.config.enable_top_down_priors:
-            update_info = self.system.update_cross_scale_priors()
+            update_info = self.system.update_cross_scale_priors(
+                enable_tower=self.config.enable_hyperprior_tower,
+                max_depth=self.config.max_hyperprior_depth,
+                decay=self.config.hyperprior_decay
+            )
             metrics['n_priors_from_parent'] = update_info['from_parent']
             metrics['n_priors_from_global'] = update_info['from_global']
             metrics['n_priors_updated'] = update_info['total']
