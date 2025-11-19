@@ -84,7 +84,7 @@ MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
 MAX_SCALE              = 3        # Highest scale allowed (3 = 4 scales: 0,1,2,3) - prevents runaway emergence
 MAX_META_MEMBERSHIP    = 10       # Max constituents per meta-agent - controls exponential growth
 MAX_TOTAL_AGENTS       = 1000     # Hard cap on total agents across ALL scales
-ENABLE_CROSS_SCALE_PRIORS = False  # Top-down prior propagation (DISABLED for now)
+ENABLE_CROSS_SCALE_PRIORS = True   # Top-down prior propagation (ENABLE for participatory dynamics!)
 ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
 
@@ -92,7 +92,7 @@ INFO_METRIC            = "fisher_metric"  # Information change metric
 # --- Energy weights ---
 LAMBDA_SELF            = 1      # Weak self-coupling (allows consensus)
 LAMBDA_BELIEF_ALIGN    = 1     # STRONG belief alignment (encourages consensus)
-LAMBDA_PRIOR_ALIGN     = 0     # Strong prior alignment
+LAMBDA_PRIOR_ALIGN     = 1     # ENABLE prior alignment to create energy gradients from top-down updates
 LAMBDA_OBS             = 0        # No observations (pure alignment dynamics)
 LAMBDA_PHI             = 0     # Small gauge coupling
 
@@ -101,13 +101,13 @@ LAMBDA_PHI             = 0     # Small gauge coupling
 KAPPA_BETA             = 1     # Low temperature (sharp attention)
 KAPPA_GAMMA            = 1
 
-identical_priors = IDENTICAL_PRIORS = "init_copy"    #lock, off, init_copy
+identical_priors = IDENTICAL_PRIORS = "off"    # Diverse initial priors for non-equilibrium dynamics (lock, off, init_copy)
 
 
 LR_MU_Q                = 0.1
 LR_SIGMA_Q             = 0.001
-LR_MU_P                = 0.1
-LR_SIGMA_P             = 0.001
+LR_MU_P                = 0.3      # Faster prior evolution for stronger top-down dynamics
+LR_SIGMA_P             = 0.01     # Faster prior covariance evolution
 LR_PHI                 = 0.1
 
 # --- Agent support geometry ---
