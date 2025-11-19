@@ -26,6 +26,12 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Import config from simulation suite
+try:
+    from simulation_suite import SKIP_INITIAL_STEPS as DEFAULT_SKIP_STEPS
+except ImportError:
+    DEFAULT_SKIP_STEPS = 0  # Fallback if simulation_suite not available
+
 
 
 # =============================================================================
@@ -1646,8 +1652,8 @@ def main():
     parser.add_argument(
         "--skip-initial-steps",
         type=int,
-        default=0,
-        help="Skip first N steps when plotting (useful to ignore initial transients).",
+        default=DEFAULT_SKIP_STEPS,
+        help=f"Skip first N steps when plotting (useful to ignore initial transients). Default: {DEFAULT_SKIP_STEPS} (from simulation_suite.py config)",
     )
     args = parser.parse_args()
 
