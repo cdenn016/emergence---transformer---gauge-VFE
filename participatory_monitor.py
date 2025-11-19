@@ -16,8 +16,7 @@ import warnings
 
 from meta.emergence import MultiScaleSystem, HierarchicalAgent
 from meta.consensus import ConsensusDetector
-from geometry.gauge import parallel_transport_operator
-from geometry.kl import kl_divergence_gaussians
+from math_utils.numerical_utils import kl_gaussian
 
 
 @dataclass
@@ -134,7 +133,7 @@ class ParticipatoryMonitor:
                 if key in self._previous_priors:
                     prev_mu_p, prev_L_p = self._previous_priors[key]
                     # Compute KL divergence between old and new prior
-                    kl_change = kl_divergence_gaussians(
+                    kl_change = kl_gaussian(
                         prev_mu_p, prev_L_p @ prev_L_p.T,
                         agent.mu_p, agent.L_p @ agent.L_p.T
                     )
@@ -468,7 +467,7 @@ class ParticipatoryMonitor:
         for scale, agents in self.system.agents.items():
             for agent in agents:
                 # Simple proxy: sum of KL divergences between belief and prior
-                kl = kl_divergence_gaussians(
+                kl = kl_gaussian(
                     agent.mu_q, agent.L_q @ agent.L_q.T,
                     agent.mu_p, agent.L_p @ agent.L_p.T
                 )
