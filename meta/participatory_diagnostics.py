@@ -288,7 +288,7 @@ class ParticipatoryDiagnostics:
         # Stats
         total_changes = len(self.prior_changes)
         n_agents_changing = len(agent_changes)
-        avg_change = np.mean([c for _, c in self.prior_changes])
+        avg_change = np.mean([c for _, _, c in self.prior_changes])
 
         return {
             "status": "ok",
