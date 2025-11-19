@@ -271,8 +271,13 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
             hier_agent.Sigma_p = np.eye(K_latent)
 
             # Random gauge frame (element of SO(3))
-            from math_utils.so3_frechet import random_so3_matrix
-            hier_agent.gauge.phi = random_so3_matrix(rng)
+            # Generate random rotation: φ ~ Uniform on S² × [0, π]
+            from math_utils.so3_frechet import so3_exp
+            random_axis = rng.standard_normal(3)
+            random_axis = random_axis / np.linalg.norm(random_axis)  # Normalize
+            random_angle = rng.uniform(0, np.pi)
+            random_phi = random_axis * random_angle
+            hier_agent.gauge.phi = so3_exp(random_phi)
 
         # Hierarchical evolution config
         hier_config = HierarchicalConfig(
