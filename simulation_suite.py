@@ -870,6 +870,13 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         track_agent_ids=None  # Auto-selects first 3 scale-0 agents
     )
 
+    # Create mu tracker for gauge orbit visualization (tracks scale-0 agents only)
+    print("  Initializing Mu Tracker...")
+    from data_utils.mu_tracking import MuCenterTracking
+    n_base_agents = len(multi_scale_system.agents[0])
+    K = multi_scale_system.agents[0][0].config.K
+    mu_tracker = MuCenterTracking(n_agents=n_base_agents, K=K)
+
     # Create evolution engine (detector created internally)
     engine = HierarchicalEvolutionEngine(
         multi_scale_system, hier_config,
@@ -963,6 +970,14 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         history['n_active_agents'].append(total_active)
         history['n_condensations'].append(metrics.get('n_condensations', 0))
 
+        # Record mu tracking for scale-0 agents (for gauge orbit visualization)
+        class _MuTrackingWrapper:
+            """Wrapper to make scale-0 agents compatible with mu_tracker.record()"""
+            def __init__(self, agents):
+                self.agents = agents
+        scale_0_wrapper = _MuTrackingWrapper(multi_scale_system.agents[0])
+        mu_tracker.record(step, scale_0_wrapper)
+
         # Check for emergence events
         if metrics.get('n_condensations', 0) > 0:
             event = {
@@ -1001,14 +1016,18 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     diagnostics.plot_agent_energies(save_path=str(output_dir / "agent_energies.png"))
     diagnostics.plot_scale_energies(save_path=str(output_dir / "scale_energies.png"))
 
+    # Add mu_tracker to history for analysis suite compatibility
+    history['mu_tracker'] = mu_tracker
+
     # Save history (use same filenames as standard training for analysis compatibility)
     hist_path = output_dir / "history.pkl"
     with open(hist_path, "wb") as f:
         pickle.dump(history, f)
     print("✓ Saved history.pkl")
 
-    # Save as npz
-    arrays = {k: np.array(v) for k, v in history.items() if k != 'emergence_events'}
+    # Save as npz (exclude non-array fields)
+    arrays = {k: np.array(v) for k, v in history.items()
+              if k not in ['emergence_events', 'mu_tracker']}
     npz_path = output_dir / "history.npz"
     np.savez(npz_path, **arrays)
     print("✓ Saved history.npz")

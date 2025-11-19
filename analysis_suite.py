@@ -45,8 +45,9 @@ def load_history(run_dir: Path):
         print(f"✓ Loaded history from {pkl_path}")
         
         # Check if it has mu_tracker
-        if hasattr(history, 'mu_tracker') and history.mu_tracker is not None:
-            print(f"  ✓ Mu tracking data available: {len(history.mu_tracker.steps)} steps")
+        mu_tracker = get_mu_tracker(history)
+        if mu_tracker is not None:
+            print(f"  ✓ Mu tracking data available: {len(mu_tracker.steps)} steps")
         else:
             print("  ⚠️  No mu tracking data in history")
         
@@ -64,19 +65,43 @@ def load_history(run_dir: Path):
     return None
 
 
+def get_mu_tracker(history):
+    """
+    Extract mu_tracker from history regardless of format (dict or object).
+
+    Args:
+        history: Either a dict with 'mu_tracker' key or object with mu_tracker attribute
+
+    Returns:
+        MuCenterTracking instance or None
+    """
+    if history is None:
+        return None
+
+    # Dict format (hierarchical training)
+    if isinstance(history, dict):
+        return history.get('mu_tracker', None)
+
+    # Object format (standard training)
+    if hasattr(history, 'mu_tracker'):
+        return history.mu_tracker
+
+    return None
+
+
 def normalize_history(history):
     """
     Convert TrainingHistory object to dict format for plotting.
-    
+
     This allows plot functions to work with both pkl and npz formats.
     """
     if history is None:
         return None
-    
+
     # If it's already a dict, return as-is
     if isinstance(history, dict):
         return history
-    
+
     # If it's a TrainingHistory object, convert to dict
     if hasattr(history, 'steps'):
         hist_dict = {
@@ -91,7 +116,7 @@ def normalize_history(history):
             "grad_norm_phi": history.grad_norm_phi if hasattr(history, 'grad_norm_phi') else [],
         }
         return hist_dict
-    
+
     return None
 
 
@@ -852,12 +877,9 @@ def plot_mu_norm_trajectories(history, out_dir: Path):
     - Vacuum theory: All agents should have same norm (gauge orbit)
     - With observations: Norms diverge (symmetry breaking)
     """
-    if history is None or not hasattr(history, 'mu_tracker'):
-        print("⚠️  No mu tracking data available")
-        return
-    
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
+        print("⚠️  No mu tracking data available")
         return
     
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -905,10 +927,7 @@ def plot_mu_component_trajectories(history, out_dir: Path, agent_idx: int = 0):
     
     Shows how the agent moves through latent space.
     """
-    if history is None or not hasattr(history, 'mu_tracker'):
-        return
-    
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
         return
     
@@ -946,10 +965,7 @@ def plot_norm_variance_evolution(history, out_dir: Path):
     - Var(||μ||) ≈ 0: Gauge symmetry preserved (vacuum theory)
     - Var(||μ||) > 0: Symmetry broken (observations active)
     """
-    if history is None or not hasattr(history, 'mu_tracker'):
-        return
-    
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
         return
     
@@ -1009,10 +1025,7 @@ def plot_mu_phase_space(history, out_dir: Path, dims: tuple = (0, 1)):
     
     Shows how agents explore the latent space manifold.
     """
-    if history is None or not hasattr(history, 'mu_tracker'):
-        return
-    
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
         return
     
@@ -1062,10 +1075,7 @@ def plot_mu_summary_report(history, out_dir: Path):
     
     Combines all key diagnostics in one multi-panel figure.
     """
-    if history is None or not hasattr(history, 'mu_tracker'):
-        return
-    
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
         return
     
@@ -1188,13 +1198,9 @@ def plot_mu_gauge_orbit(history, out_dir: Path):
     # -------------------------------------------------------------------------
     # Safety checks and early exits
     # -------------------------------------------------------------------------
-    if history is None or not hasattr(history, "mu_tracker"):
-        print("⚠️  No mu tracking data available — skipping gauge orbit plot.")
-        return
-
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
-        print("⚠️  history.mu_tracker is None — skipping gauge orbit plot.")
+        print("⚠️  No mu tracking data available — skipping gauge orbit plot.")
         return
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1449,13 +1455,9 @@ def plot_mu_gauge_orbit_projections(history, out_dir: Path):
     This complements the 3D gauge-orbit visualization by showing unambiguous
     planar projections of the same normalized trajectories.
     """
-    if history is None or not hasattr(history, "mu_tracker"):
-        print("⚠️  No mu tracking data available — skipping orbit projections.")
-        return
-
-    tracker = history.mu_tracker
+    tracker = get_mu_tracker(history)
     if tracker is None:
-        print("⚠️  history.mu_tracker is None — skipping orbit projections.")
+        print("⚠️  No mu tracking data available — skipping orbit projections.")
         return
 
     components0 = tracker.get_component_array(0)
