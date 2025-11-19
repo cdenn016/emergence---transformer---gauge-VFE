@@ -816,6 +816,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
     from gradients.gradient_engine import compute_natural_gradients
     from meta.participatory_monitor import ParticipatoryMonitor
+    from meta.participatory_diagnostics import ParticipatoryDiagnostics
     from meta.consensus import ConsensusDetector
 
     print(f"\n{'='*70}")
@@ -855,8 +856,19 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         non_eq_threshold=1e-3
     )
 
+    # Create diagnostics tracker for detailed analysis
+    print("  Initializing Diagnostics Tracker...")
+    diagnostics = ParticipatoryDiagnostics(
+        system=multi_scale_system,
+        track_agent_ids=None  # Auto-selects first 3 scale-0 agents
+    )
+
     # Create evolution engine (detector created internally)
-    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config, participatory_monitor=monitor)
+    engine = HierarchicalEvolutionEngine(
+        multi_scale_system, hier_config,
+        participatory_monitor=monitor,
+        diagnostics=diagnostics
+    )
 
     print(f"  Steps              : {N_STEPS}")
     print(f"  Consensus check    : every {CONSENSUS_CHECK_INTERVAL} steps")
@@ -971,6 +983,14 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print("PARTICIPATORY DYNAMICS VALIDATION")
     print("="*70)
     monitor.print_summary(max_levels=multi_scale_system.max_emergence_levels)
+
+    # Print diagnostics summary
+    diagnostics.print_summary()
+
+    # Generate diagnostic plots
+    print("\n  Generating diagnostic plots...")
+    diagnostics.plot_agent_energies(save_path=str(output_dir / "agent_energies.png"))
+    diagnostics.plot_scale_energies(save_path=str(output_dir / "scale_energies.png"))
 
     # Save history
     hist_path = output_dir / "hierarchical_history.pkl"

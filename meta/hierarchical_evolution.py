@@ -73,7 +73,8 @@ class HierarchicalEvolutionEngine:
     def __init__(self,
                  system: MultiScaleSystem,
                  config: Optional[HierarchicalConfig] = None,
-                 participatory_monitor=None):
+                 participatory_monitor=None,
+                 diagnostics=None):
         """
         Initialize hierarchical evolution engine.
 
@@ -81,10 +82,12 @@ class HierarchicalEvolutionEngine:
             system: MultiScaleSystem to evolve
             config: Evolution configuration
             participatory_monitor: Optional ParticipatoryMonitor for validation
+            diagnostics: Optional ParticipatoryDiagnostics for detailed tracking
         """
         self.system = system
         self.config = config or HierarchicalConfig()
         self.monitor = participatory_monitor
+        self.diagnostics = diagnostics
 
         # Evolution state
         self.step_count = 0
@@ -212,6 +215,12 @@ class HierarchicalEvolutionEngine:
         # =====================================================================
         if self.monitor is not None:
             self.monitor.take_snapshot(self.step_count)
+
+        # =====================================================================
+        # Diagnostics (if enabled)
+        # =====================================================================
+        if self.diagnostics is not None:
+            self.diagnostics.record_snapshot(self.step_count)
 
         return metrics
 
