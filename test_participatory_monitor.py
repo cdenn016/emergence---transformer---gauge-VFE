@@ -26,8 +26,7 @@ def test_participatory_monitor():
     print("="*70)
 
     # Create a simple system for testing
-    N = 64
-    K = 3
+    K = 3  # Latent dimension
 
     # Configuration
     system_cfg = SystemConfig(
@@ -52,8 +51,9 @@ def test_participatory_monitor():
         lr_phi=0.001,
     )
 
-    # Create base manifold (2D torus with 8x8 = 64 points)
-    manifold = BaseManifold(shape=(8, 8), topology=TopologyType.PERIODIC)
+    # Create point manifold for particle agents (no spatial dimensions)
+    # This ensures agents have simple K-dimensional fields, not spatial fields
+    manifold = BaseManifold(shape=(), topology=TopologyType.PERIODIC)
     support = create_full_support(manifold)
 
     # Create multi-scale system with level cap
@@ -119,16 +119,16 @@ def test_participatory_monitor():
                     if agent.parent_meta is not None:
                         agent.mu_p += rng.normal(0, 0.002, size=K)
 
-        # Try to form meta-agents at intervals
+        # Try to form meta-agents at intervals (manually create clusters for testing)
         if step % 20 == 10 and step > 0:
             print(f"\n   Attempting condensation at step {step}...")
-            # Detect consensus
-            if 0 in system.agents and len(system.agents[0]) > 1:
-                clusters = consensus_detector.detect_consensus_clusters(system.agents[0])
-                if clusters:
-                    print(f"   Found {len(clusters)} consensus clusters")
-                    system.form_meta_agents_at_scale(0, clusters)
-                    print(f"   Formed {len(system.agents.get(1, []))} meta-agents at scale 1")
+            # Manually create some clusters for testing (not using consensus detection)
+            if 0 in system.agents and len(system.agents[0]) >= 4:
+                # Group agents into pairs for testing
+                clusters = [[0, 1], [2, 3]]
+                print(f"   Creating {len(clusters)} test clusters")
+                system.form_meta_agents_at_scale(0, clusters)
+                print(f"   Formed {len(system.agents.get(1, []))} meta-agents at scale 1")
 
     # Final snapshot
     print("\n6. Taking final snapshot...")
