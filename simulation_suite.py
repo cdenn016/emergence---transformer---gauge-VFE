@@ -84,30 +84,35 @@ MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
 MAX_SCALE              = 3        # Highest scale allowed (3 = 4 scales: 0,1,2,3) - prevents runaway emergence
 MAX_META_MEMBERSHIP    = 10       # Max constituents per meta-agent - controls exponential growth
 MAX_TOTAL_AGENTS       = 1000     # Hard cap on total agents across ALL scales
-ENABLE_CROSS_SCALE_PRIORS = False  # Top-down prior propagation (DISABLED for now)
+ENABLE_CROSS_SCALE_PRIORS = True   # Top-down prior propagation (ENABLE for participatory dynamics!)
 ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
 
 
-# --- Energy weights ---
-LAMBDA_SELF            = 1      # Weak self-coupling (allows consensus)
-LAMBDA_BELIEF_ALIGN    = 1     # STRONG belief alignment (encourages consensus)
-LAMBDA_PRIOR_ALIGN     = 0     # Strong prior alignment
-LAMBDA_OBS             = 0        # No observations (pure alignment dynamics)
-LAMBDA_PHI             = 0     # Small gauge coupling
+# --- Energy weights: Model cultural/hierarchical tension ---
+# Analogy: Individual in a culture facing pressure from multiple sources
+# - SELF: Individual agency/identity (resistance to conformity)
+# - BELIEF_ALIGN: Peer pressure (social conformity, horizontal)
+# - PRIOR_ALIGN: Cultural/hierarchical norms (authority, vertical/top-down)
+# These compete → can't all be satisfied → sustained non-equilibrium
+LAMBDA_SELF            = 3.0    # STRONG individual identity (resists conforming)
+LAMBDA_BELIEF_ALIGN    = 2.0    # STRONG peer pressure (social conformity)
+LAMBDA_PRIOR_ALIGN     = 2.5    # STRONG cultural authority (top-down norms from meta-agents)
+LAMBDA_OBS             = 0      # No external observations (pure social dynamics)
+LAMBDA_PHI             = 0      # No gauge coupling
 
 
 
 KAPPA_BETA             = 1     # Low temperature (sharp attention)
 KAPPA_GAMMA            = 1
 
-identical_priors = IDENTICAL_PRIORS = "init_copy"    #lock, off, init_copy
+identical_priors = IDENTICAL_PRIORS = "off"    # Diverse initial priors for non-equilibrium dynamics (lock, off, init_copy)
 
 
-LR_MU_Q                = 0.1
+LR_MU_Q                = 0.08     # Individual beliefs evolve (but with inertia/resistance)
 LR_SIGMA_Q             = 0.001
-LR_MU_P                = 0.1
-LR_SIGMA_P             = 0.001
+LR_MU_P                = 0.2      # Cultural norms propagate (top-down pressure)
+LR_SIGMA_P             = 0.01     # Prior covariance evolution
 LR_PHI                 = 0.1
 
 # --- Agent support geometry ---
@@ -870,6 +875,13 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         track_agent_ids=None  # Auto-selects first 3 scale-0 agents
     )
 
+    # Create mu tracker for gauge orbit visualization (tracks scale-0 agents only)
+    print("  Initializing Mu Tracker...")
+    from data_utils.mu_tracking import MuCenterTracking
+    n_base_agents = len(multi_scale_system.agents[0])
+    K = multi_scale_system.agents[0][0].config.K
+    mu_tracker = MuCenterTracking(n_agents=n_base_agents, K=K)
+
     # Create evolution engine (detector created internally)
     engine = HierarchicalEvolutionEngine(
         multi_scale_system, hier_config,
@@ -963,6 +975,14 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         history['n_active_agents'].append(total_active)
         history['n_condensations'].append(metrics.get('n_condensations', 0))
 
+        # Record mu tracking for scale-0 agents (for gauge orbit visualization)
+        class _MuTrackingWrapper:
+            """Wrapper to make scale-0 agents compatible with mu_tracker.record()"""
+            def __init__(self, agents):
+                self.agents = agents
+        scale_0_wrapper = _MuTrackingWrapper(multi_scale_system.agents[0])
+        mu_tracker.record(step, scale_0_wrapper)
+
         # Check for emergence events
         if metrics.get('n_condensations', 0) > 0:
             event = {
@@ -1001,14 +1021,18 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     diagnostics.plot_agent_energies(save_path=str(output_dir / "agent_energies.png"))
     diagnostics.plot_scale_energies(save_path=str(output_dir / "scale_energies.png"))
 
+    # Add mu_tracker to history for analysis suite compatibility
+    history['mu_tracker'] = mu_tracker
+
     # Save history (use same filenames as standard training for analysis compatibility)
     hist_path = output_dir / "history.pkl"
     with open(hist_path, "wb") as f:
         pickle.dump(history, f)
     print("✓ Saved history.pkl")
 
-    # Save as npz
-    arrays = {k: np.array(v) for k, v in history.items() if k != 'emergence_events'}
+    # Save as npz (exclude non-array fields)
+    arrays = {k: np.array(v) for k, v in history.items()
+              if k not in ['emergence_events', 'mu_tracker']}
     npz_path = output_dir / "history.npz"
     np.savez(npz_path, **arrays)
     print("✓ Saved history.npz")
