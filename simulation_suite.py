@@ -81,6 +81,7 @@ ENABLE_EMERGENCE       = True     # Enable automatic meta-agent formation
 CONSENSUS_THRESHOLD    = 0.05     # KL threshold for epistemic death
 CONSENSUS_CHECK_INTERVAL = 5      # Check for consensus every N steps
 MIN_CLUSTER_SIZE       = 2        # Minimum agents to form meta-agent
+MAX_EMERGENCE_LEVELS   = 4        # Maximum hierarchy depth (scales 0-4) - prevents runaway emergence
 ENABLE_CROSS_SCALE_PRIORS = False  # Top-down prior propagation (DISABLED for now)
 ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
@@ -487,9 +488,8 @@ def build_system(agents, rng: np.random.Generator):
 
         # Create multi-scale system
         manifold = agents[0].base_manifold  # All agents share same manifold
-        # Set max emergence levels to 4 (scales 0-4) to prevent performance degradation
-        # This allows: base (0), groups (1), communities (2), societies (3), meta-societies (4)
-        system = MultiScaleSystem(manifold, max_emergence_levels=4)
+        # Use configured max emergence levels to prevent performance degradation
+        system = MultiScaleSystem(manifold, max_emergence_levels=MAX_EMERGENCE_LEVELS)
         system.system_config = system_cfg
 
         # Add agents as base agents (scale 0)
