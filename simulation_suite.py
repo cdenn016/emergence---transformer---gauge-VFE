@@ -992,17 +992,17 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     diagnostics.plot_agent_energies(save_path=str(output_dir / "agent_energies.png"))
     diagnostics.plot_scale_energies(save_path=str(output_dir / "scale_energies.png"))
 
-    # Save history
-    hist_path = output_dir / "hierarchical_history.pkl"
+    # Save history (use same filenames as standard training for analysis compatibility)
+    hist_path = output_dir / "history.pkl"
     with open(hist_path, "wb") as f:
         pickle.dump(history, f)
-    print("✓ Saved hierarchical_history.pkl")
+    print("✓ Saved history.pkl")
 
     # Save as npz
     arrays = {k: np.array(v) for k, v in history.items() if k != 'emergence_events'}
-    npz_path = output_dir / "hierarchical_history.npz"
+    npz_path = output_dir / "history.npz"
     np.savez(npz_path, **arrays)
-    print("✓ Saved hierarchical_history.npz")
+    print("✓ Saved history.npz")
 
     # Plot emergence
     if history['step']:
