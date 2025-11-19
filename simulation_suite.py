@@ -89,12 +89,17 @@ ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
 
 
-# --- Energy weights ---
-LAMBDA_SELF            = 1      # Weak self-coupling (allows consensus)
-LAMBDA_BELIEF_ALIGN    = 1     # STRONG belief alignment (encourages consensus)
-LAMBDA_PRIOR_ALIGN     = 1     # ENABLE prior alignment to create energy gradients from top-down updates
-LAMBDA_OBS             = 0        # No observations (pure alignment dynamics)
-LAMBDA_PHI             = 0     # Small gauge coupling
+# --- Energy weights: Model cultural/hierarchical tension ---
+# Analogy: Individual in a culture facing pressure from multiple sources
+# - SELF: Individual agency/identity (resistance to conformity)
+# - BELIEF_ALIGN: Peer pressure (social conformity, horizontal)
+# - PRIOR_ALIGN: Cultural/hierarchical norms (authority, vertical/top-down)
+# These compete → can't all be satisfied → sustained non-equilibrium
+LAMBDA_SELF            = 3.0    # STRONG individual identity (resists conforming)
+LAMBDA_BELIEF_ALIGN    = 2.0    # STRONG peer pressure (social conformity)
+LAMBDA_PRIOR_ALIGN     = 2.5    # STRONG cultural authority (top-down norms from meta-agents)
+LAMBDA_OBS             = 0      # No external observations (pure social dynamics)
+LAMBDA_PHI             = 0      # No gauge coupling
 
 
 
@@ -104,10 +109,10 @@ KAPPA_GAMMA            = 1
 identical_priors = IDENTICAL_PRIORS = "off"    # Diverse initial priors for non-equilibrium dynamics (lock, off, init_copy)
 
 
-LR_MU_Q                = 0.1
+LR_MU_Q                = 0.08     # Individual beliefs evolve (but with inertia/resistance)
 LR_SIGMA_Q             = 0.001
-LR_MU_P                = 0.3      # Faster prior evolution for stronger top-down dynamics
-LR_SIGMA_P             = 0.01     # Faster prior covariance evolution
+LR_MU_P                = 0.2      # Cultural norms propagate (top-down pressure)
+LR_SIGMA_P             = 0.01     # Prior covariance evolution
 LR_PHI                 = 0.1
 
 # --- Agent support geometry ---
