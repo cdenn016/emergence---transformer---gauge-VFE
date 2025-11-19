@@ -34,6 +34,11 @@ class HierarchicalConfig:
     enable_top_down_priors: bool = True
     enable_bottom_up_obs: bool = True
 
+    # Ouroboros: Multi-scale hyperprior tower (non-Markovian prior propagation)
+    enable_hyperprior_tower: bool = False  # Receive priors from ALL levels above, not just parent
+    max_hyperprior_depth: int = 3          # How many ancestral levels to include (1=standard Markov)
+    hyperprior_decay: float = 0.3          # Exponential decay with scale distance: λ_k = λ * decay^k
+
     # Timescale separation
     enable_timescale_filtering: bool = True
     info_change_metric: str = "fisher_metric"  # "fisher_metric", "kl_divergence", or "gradient_norm"
@@ -134,10 +139,14 @@ class HierarchicalEvolutionEngine:
         }
 
         # =====================================================================
-        # Phase 1: Prior Updates (Hierarchical + Self-Referential)
+        # Phase 1: Prior Updates (Hierarchical + Self-Referential + Ouroboros Tower)
         # =====================================================================
         if self.config.enable_top_down_priors:
-            update_info = self.system.update_cross_scale_priors()
+            update_info = self.system.update_cross_scale_priors(
+                enable_tower=self.config.enable_hyperprior_tower,
+                max_depth=self.config.max_hyperprior_depth,
+                decay=self.config.hyperprior_decay
+            )
             metrics['n_priors_from_parent'] = update_info['from_parent']
             metrics['n_priors_from_global'] = update_info['from_global']
             metrics['n_priors_updated'] = update_info['total']

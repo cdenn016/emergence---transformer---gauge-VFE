@@ -346,49 +346,65 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
         )
         multi_scale_system.system_config = system_cfg
 
-        # Create base agents
-        generators = generate_so3_generators(K_latent)
-
-        # Create supports for point manifolds (required for gradient computation)
-        # For 0D manifolds, use SupportRegionSmooth (matches simulation_suite.py)
+        # Create base agents EXACTLY like simulation_suite.py does
+        from agent.agents import Agent
         from agent.masking import SupportRegionSmooth
+
+        generators = generate_so3_generators(K_latent)
         mask_cfg = MaskConfig()
-        supports = []
-        for _ in range(n_agents):
+
+        # Step 1: Create regular Agent objects with proper initialization
+        regular_agents = []
+        for i in range(n_agents):
+            rng_i = np.random.default_rng(seed + i)
+
+            # Create smooth support for point manifold
             support = SupportRegionSmooth(
-                mask_binary=np.array(True),  # 0D: single point, always True
+                mask_binary=np.array(True),  # 0D: single point
                 base_shape=(),
                 config=mask_cfg
             )
             # CRITICAL: Add base_manifold attribute for gradient engine compatibility
             support.base_manifold = manifold
-            supports.append(support)
 
-        for i in range(n_agents):
-            # Create hierarchical agent directly (no need for regular Agent)
-            hier_agent = multi_scale_system.add_base_agent(agent_cfg, agent_id=f"agent_{i}")
+            # Create regular agent (does full initialization)
+            agent = Agent(
+                agent_id=i,
+                config=agent_cfg,
+                rng=rng_i,
+                base_manifold=manifold
+            )
 
-            # Attach support (CRITICAL for gradient computation)
-            hier_agent.support = supports[i]
+            # Attach smooth support
+            agent.support = support
+            agent.geometry.support = support
+            agent.geometry.n_active = support.n_active
 
-            # Initialize fields with random values
-            rng = np.random.default_rng(seed + i)
-            hier_agent.generators = generators
+            # Initialize gauge field (creates agent.gauge)
+            agent._initialize_gauge()
 
-            # Random initialization for beliefs and priors
-            hier_agent.mu_q = rng.standard_normal(K_latent) * 0.1
-            hier_agent.Sigma_q = np.eye(K_latent)
-            hier_agent.mu_p = rng.standard_normal(K_latent) * 0.1  # Diverse priors
-            hier_agent.Sigma_p = np.eye(K_latent)
+            # Initialize generators and belief/prior fields
+            agent.generators = generators
+            agent.mu_q = rng_i.standard_normal(K_latent) * 0.1
+            agent.Sigma_q = np.eye(K_latent)
+            agent.mu_p = rng_i.standard_normal(K_latent) * 0.1
+            agent.Sigma_p = np.eye(K_latent)
 
-            # Random gauge frame (element of SO(3))
-            # Generate random rotation: φ ~ Uniform on S² × [0, π]
-            from math_utils.so3_frechet import so3_exp
-            random_axis = rng.standard_normal(3)
-            random_axis = random_axis / np.linalg.norm(random_axis)  # Normalize
-            random_angle = rng.uniform(0, np.pi)
-            random_phi = random_axis * random_angle
-            hier_agent.gauge.phi = so3_exp(random_phi)
+            regular_agents.append(agent)
+
+        # Step 2: Convert to hierarchical agents (like simulation_suite.py does)
+        for agent in regular_agents:
+            h_agent = multi_scale_system.add_base_agent(agent.config, agent_id=agent.agent_id)
+            h_agent.support = agent.support
+            h_agent.generators = generators
+            h_agent.geometry = agent.geometry  # Copy full geometry
+
+            # Copy state
+            h_agent.mu_q = agent.mu_q.copy()
+            h_agent.Sigma_q = agent.Sigma_q.copy()
+            h_agent.mu_p = agent.mu_p.copy()
+            h_agent.Sigma_p = agent.Sigma_p.copy()
+            h_agent.gauge.phi = agent.gauge.phi.copy()
 
         # Hierarchical evolution config
         hier_config = HierarchicalConfig(
