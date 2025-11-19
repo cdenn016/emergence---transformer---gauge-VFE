@@ -35,7 +35,6 @@ from typing import List, Dict, Optional
 # Import simulation components
 from geometry.geometry_base import BaseManifold, TopologyType
 from config import AgentConfig, SystemConfig, MaskConfig
-from agent.agents import Agent
 from meta.emergence import MultiScaleSystem
 from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
 from meta.consensus import ConsensusDetector
@@ -258,23 +257,22 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
         # Create base agents
         generators = generate_so3_generators(K_latent)
         for i in range(n_agents):
-            agent = Agent(
-                agent_id=f"agent_{i}",
-                config=agent_cfg,
-                rng=np.random.default_rng(seed + i),
-                base_manifold=manifold
-            )
-            agent.generators = generators
-            agent._initialize_gauge()
-
-            # Add to multi-scale system
+            # Create hierarchical agent directly (no need for regular Agent)
             hier_agent = multi_scale_system.add_base_agent(agent_cfg, agent_id=f"agent_{i}")
-            hier_agent.mu_q = agent.mu_q
-            hier_agent.Sigma_q = agent.Sigma_q
-            hier_agent.mu_p = agent.mu_p
-            hier_agent.Sigma_p = agent.Sigma_p
-            hier_agent.gauge.phi = agent.gauge.phi
+
+            # Initialize fields with random values
+            rng = np.random.default_rng(seed + i)
             hier_agent.generators = generators
+
+            # Random initialization for beliefs and priors
+            hier_agent.mu_q = rng.standard_normal(K_latent) * 0.1
+            hier_agent.Sigma_q = np.eye(K_latent)
+            hier_agent.mu_p = rng.standard_normal(K_latent) * 0.1  # Diverse priors
+            hier_agent.Sigma_p = np.eye(K_latent)
+
+            # Random gauge frame (element of SO(3))
+            from math_utils.so3_frechet import random_so3_matrix
+            hier_agent.gauge.phi = random_so3_matrix(rng)
 
         # Hierarchical evolution config
         hier_config = HierarchicalConfig(
