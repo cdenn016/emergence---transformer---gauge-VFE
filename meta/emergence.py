@@ -133,6 +133,13 @@ class HierarchicalAgent(Agent):
         self.parent_meta = None  # Meta-agent this agent belongs to (if any)
         self.constituents = []   # Constituent agents (if this is a meta-agent)
 
+        # Ouroboros: Multi-scale hyperprior tower (non-Markovian memory)
+        # hyperpriors[k] = prior from k+2 levels up (k=0 → grandparent, k=1 → great-grandparent, ...)
+        # Standard: only parent_meta (Markov)
+        # Tower: parent_meta + hyperpriors from all ancestors (non-Markov)
+        self.hyperprior_mus = []     # List[μ_h^(k)] - hyperprior means from ancestors
+        self.hyperprior_Sigmas = []  # List[Σ_h^(k)] - hyperprior covariances from ancestors
+
         # Activity status (can be deactivated when absorbed into meta-agent)
         self.is_active = True
 
@@ -140,19 +147,32 @@ class HierarchicalAgent(Agent):
         self.info_accumulator = 0.0  # Accumulated information change ΔI
         self.timescale_threshold = 10.0 ** scale  # Update threshold (bits)
 
-    def update_prior_from_parent(self):
+    def update_prior_from_parent(self, enable_tower=False, max_depth=1, decay=0.3):
         """
         Top-down: Update prior from parent meta-agent's belief.
 
-        p_i^(ζ) ← q_M^(ζ+1)
+        Standard (Markov):
+            p_i^(ζ) ← q_M^(ζ+1)
+
+        Ouroboros Tower (Non-Markov):
+            p_i^(ζ)     ← q_M^(ζ+1)      (parent - immediate prior)
+            h_i^(ζ,0)   ← q_M^(ζ+2)      (grandparent - 1st hyperprior)
+            h_i^(ζ,1)   ← q_M^(ζ+3)      (great-grandparent - 2nd hyperprior)
+            ...
 
         This creates the downward flow of information: meta-agent beliefs
-        become constituent priors.
+        become constituent priors. With tower enabled, information flows
+        from ALL ancestral scales, not just immediate parent.
+
+        Args:
+            enable_tower: If True, collect hyperpriors from all ancestors
+            max_depth: How many levels up to collect (1=standard, 2+=tower)
+            decay: Exponential decay for hyperprior influence
         """
         if self.parent_meta is None or not self.parent_meta.is_active:
             return  # No parent or parent inactive
 
-        # Transport parent's belief to this agent's frame
+        # Standard: Prior from parent (ζ+1)
         omega = compute_transport(
             self.gauge.phi,
             self.parent_meta.gauge.phi,
@@ -167,6 +187,41 @@ class HierarchicalAgent(Agent):
         # Regularize to ensure SPD after transport
         self.Sigma_p = 0.5 * (self.Sigma_p + self.Sigma_p.T)  # Symmetrize
         self.Sigma_p += 1e-6 * np.eye(self.K)  # Regularize
+
+        # Ouroboros Tower: Collect hyperpriors from ancestors (ζ+2, ζ+3, ...)
+        if enable_tower and max_depth > 1:
+            self.hyperprior_mus = []
+            self.hyperprior_Sigmas = []
+
+            # Climb the tower: parent → grandparent → great-grandparent → ...
+            current_ancestor = self.parent_meta
+            for depth in range(1, max_depth):
+                # Get next level up (grandparent, great-grandparent, ...)
+                if current_ancestor is None or current_ancestor.parent_meta is None:
+                    break  # Reached top of hierarchy
+
+                current_ancestor = current_ancestor.parent_meta
+                if not current_ancestor.is_active:
+                    break  # Ancestor inactive
+
+                # Transport ancestor's belief to this agent's frame
+                omega_ancestor = compute_transport(
+                    self.gauge.phi,
+                    current_ancestor.gauge.phi,
+                    self.generators,
+                    validate=False
+                )
+
+                # Store hyperprior
+                mu_h = omega_ancestor @ current_ancestor.mu_q
+                Sigma_h = omega_ancestor @ current_ancestor.Sigma_q @ omega_ancestor.T
+
+                # Regularize
+                Sigma_h = 0.5 * (Sigma_h + Sigma_h.T)
+                Sigma_h += 1e-6 * np.eye(self.K)
+
+                self.hyperprior_mus.append(mu_h)
+                self.hyperprior_Sigmas.append(Sigma_h)
 
     def update_prior_from_global_state(self, system):
         """

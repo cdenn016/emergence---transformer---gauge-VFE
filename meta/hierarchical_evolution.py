@@ -34,6 +34,11 @@ class HierarchicalConfig:
     enable_top_down_priors: bool = True
     enable_bottom_up_obs: bool = True
 
+    # Ouroboros: Multi-scale hyperprior tower (non-Markovian prior propagation)
+    enable_hyperprior_tower: bool = False  # Receive priors from ALL levels above, not just parent
+    max_hyperprior_depth: int = 3          # How many ancestral levels to include (1=standard Markov)
+    hyperprior_decay: float = 0.3          # Exponential decay with scale distance: λ_k = λ * decay^k
+
     # Timescale separation
     enable_timescale_filtering: bool = True
     info_change_metric: str = "fisher_metric"  # "fisher_metric", "kl_divergence", or "gradient_norm"
