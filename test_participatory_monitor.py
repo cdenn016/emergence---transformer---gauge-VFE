@@ -42,7 +42,7 @@ def test_participatory_monitor():
     agent_cfg = AgentConfig(
         K=K,
         observation_noise=0.1,
-        mask_config=MaskConfig(mode="none")
+        mask_config=MaskConfig(mask_type="gaussian")
     )
 
     training_cfg = TrainingConfig(
