@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 
 from config import SystemConfig, AgentConfig, TrainingConfig
-from geometry.geometry_base import BaseManifold, create_full_support
+from geometry.geometry_base import BaseManifold, create_full_support, TopologyType
 from agent.masking import MaskConfig
 from meta.emergence import MultiScaleSystem, HierarchicalAgent
 from meta.consensus import ConsensusDetector
@@ -52,9 +52,9 @@ def test_participatory_monitor():
         lr_phi=0.001,
     )
 
-    # Create base manifold
-    manifold = BaseManifold(N=N, D=2, manifold_type="torus")
-    support = create_full_support(N, D=2)
+    # Create base manifold (2D torus with 8x8 = 64 points)
+    manifold = BaseManifold(shape=(8, 8), topology=TopologyType.PERIODIC)
+    support = create_full_support(manifold)
 
     # Create multi-scale system with level cap
     print("\n1. Creating MultiScaleSystem with max_emergence_levels=3...")
