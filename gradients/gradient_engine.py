@@ -622,12 +622,19 @@ def compute_belief_alignment_gradients(
         
         if agent_i.base_manifold.is_point:
             # 0D: weight is scalar, multiply directly
-            weight_scalar = float(weight_field)
-            
-            gradients[agent_idx_i].grad_mu_q += weight_scalar * g_mu_i
-            gradients[agent_idx_i].grad_Sigma_q += weight_scalar * g_Sigma_i
-            gradients[j].grad_mu_q += weight_scalar * g_mu_j
-            gradients[j].grad_Sigma_q += weight_scalar * g_Sigma_j
+            # Use .item() to safely extract scalar from 0-d or 1-d array
+            weight_scalar = np.asarray(weight_field).item() if np.asarray(weight_field).size == 1 else float(np.asarray(weight_field).ravel()[0])
+
+            # Ensure gradients have correct shape (squeeze out any extra dimensions)
+            g_mu_i_safe = np.squeeze(g_mu_i)
+            g_Sigma_i_safe = np.squeeze(g_Sigma_i)
+            g_mu_j_safe = np.squeeze(g_mu_j)
+            g_Sigma_j_safe = np.squeeze(g_Sigma_j)
+
+            gradients[agent_idx_i].grad_mu_q += weight_scalar * g_mu_i_safe
+            gradients[agent_idx_i].grad_Sigma_q += weight_scalar * g_Sigma_i_safe
+            gradients[j].grad_mu_q += weight_scalar * g_mu_j_safe
+            gradients[j].grad_Sigma_q += weight_scalar * g_Sigma_j_safe
         else:
             # ND: weight has spatial dimensions, broadcast properly
             weight_vec = weight_field[..., np.newaxis]  # (*S, 1)
@@ -775,12 +782,19 @@ def compute_prior_alignment_gradients(
         
         if agent_i.base_manifold.is_point:
             # 0D: weight is scalar, multiply directly
-            weight_scalar = float(weight_field)
-            
-            gradients[agent_idx_i].grad_mu_p += weight_scalar * g_mu_i
-            gradients[agent_idx_i].grad_Sigma_p += weight_scalar * g_Sigma_i
-            gradients[j].grad_mu_p += weight_scalar * g_mu_j
-            gradients[j].grad_Sigma_p += weight_scalar * g_Sigma_j
+            # Use .item() to safely extract scalar from 0-d or 1-d array
+            weight_scalar = np.asarray(weight_field).item() if np.asarray(weight_field).size == 1 else float(np.asarray(weight_field).ravel()[0])
+
+            # Ensure gradients have correct shape (squeeze out any extra dimensions)
+            g_mu_i_safe = np.squeeze(g_mu_i)
+            g_Sigma_i_safe = np.squeeze(g_Sigma_i)
+            g_mu_j_safe = np.squeeze(g_mu_j)
+            g_Sigma_j_safe = np.squeeze(g_Sigma_j)
+
+            gradients[agent_idx_i].grad_mu_p += weight_scalar * g_mu_i_safe
+            gradients[agent_idx_i].grad_Sigma_p += weight_scalar * g_Sigma_i_safe
+            gradients[j].grad_mu_p += weight_scalar * g_mu_j_safe
+            gradients[j].grad_Sigma_p += weight_scalar * g_Sigma_j_safe
         else:
             # ND: weight has spatial dimensions, broadcast properly
             weight_vec = weight_field[..., np.newaxis]  # (*S, 1)

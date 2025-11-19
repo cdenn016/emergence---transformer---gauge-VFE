@@ -65,6 +65,7 @@ MANIFOLD_TOPOLOGY      = "periodic"
 
 # --- Training loop ---
 N_STEPS                = 50
+SKIP_INITIAL_STEPS     = 0        # Skip first N steps in analysis plots (ignore transients)
 
 # --- Agents & latent space ---
 N_AGENTS               = 5        # 5 agents to see them emerge into meta-agent
@@ -626,52 +627,69 @@ class _GradientSystemAdapter:
         self.n_agents = len(agents_list)
         self._compute_transport = compute_transport
 
+        # For point manifolds, all agents overlap (no spatial separation)
+        # Check if we have a point manifold by checking first agent
+        is_point_manifold = False
+        if len(agents_list) > 0:
+            agent = agents_list[0]
+            if hasattr(agent, 'manifold') and hasattr(agent.manifold, 'shape'):
+                is_point_manifold = (agent.manifold.shape == ())
+
         # Compute overlap relationships once (lightweight check)
         # This ensures gradient computation matches standard training
         self._overlaps = {}
-        overlap_threshold = 1e-3
 
-        for i in range(self.n_agents):
-            for j in range(self.n_agents):
-                if i == j:
-                    continue
+        if is_point_manifold:
+            # Point manifold: all agents overlap (exist at same abstract point)
+            for i in range(self.n_agents):
+                for j in range(self.n_agents):
+                    if i != j:
+                        self._overlaps[(i, j)] = True
+        else:
+            # Spatial manifold: check actual overlaps
+            overlap_threshold = 1e-3
 
-                agent_i = agents_list[i]
-                agent_j = agents_list[j]
+            for i in range(self.n_agents):
+                for j in range(self.n_agents):
+                    if i == j:
+                        continue
 
-                # Check if both have supports
-                if not (hasattr(agent_i, 'support') and hasattr(agent_j, 'support')):
-                    # No support info - assume overlap
-                    self._overlaps[(i, j)] = True
-                    continue
+                    agent_i = agents_list[i]
+                    agent_j = agents_list[j]
 
-                if agent_i.support is None or agent_j.support is None:
-                    # Missing support - assume overlap
-                    self._overlaps[(i, j)] = True
-                    continue
+                    # Check if both have supports
+                    if not (hasattr(agent_i, 'support') and hasattr(agent_j, 'support')):
+                        # No support info - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
 
-                # Get masks (try both mask_continuous and chi_weight)
-                chi_i = getattr(agent_i.support, 'mask_continuous',
-                               getattr(agent_i.support, 'chi_weight', None))
-                chi_j = getattr(agent_j.support, 'mask_continuous',
-                               getattr(agent_j.support, 'chi_weight', None))
+                    if agent_i.support is None or agent_j.support is None:
+                        # Missing support - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
 
-                if chi_i is None or chi_j is None:
-                    # No mask - assume overlap
-                    self._overlaps[(i, j)] = True
-                    continue
+                    # Get masks (try both mask_continuous and chi_weight)
+                    chi_i = getattr(agent_i.support, 'mask_continuous',
+                                   getattr(agent_i.support, 'chi_weight', None))
+                    chi_j = getattr(agent_j.support, 'mask_continuous',
+                                   getattr(agent_j.support, 'chi_weight', None))
 
-                # CRITICAL: Match MultiAgentSystem's two-check overlap logic
-                # Check 1: Upper bound (product of maxes)
-                max_overlap = np.max(chi_i) * np.max(chi_j)
-                if max_overlap < overlap_threshold:
-                    self._overlaps[(i, j)] = False
-                    continue
+                    if chi_i is None or chi_j is None:
+                        # No mask - assume overlap
+                        self._overlaps[(i, j)] = True
+                        continue
 
-                # Check 2: Actual overlap (max of products)
-                chi_ij = chi_i * chi_j  # Element-wise product
-                has_overlap = np.max(chi_ij) >= overlap_threshold
-                self._overlaps[(i, j)] = has_overlap
+                    # CRITICAL: Match MultiAgentSystem's two-check overlap logic
+                    # Check 1: Upper bound (product of maxes)
+                    max_overlap = np.max(chi_i) * np.max(chi_j)
+                    if max_overlap < overlap_threshold:
+                        self._overlaps[(i, j)] = False
+                        continue
+
+                    # Check 2: Actual overlap (max of products)
+                    chi_ij = chi_i * chi_j  # Element-wise product
+                    has_overlap = np.max(chi_ij) >= overlap_threshold
+                    self._overlaps[(i, j)] = has_overlap
 
     def get_neighbors(self, agent_idx: int):
         """Return agents that spatially overlap (matches MultiAgentSystem behavior)."""
