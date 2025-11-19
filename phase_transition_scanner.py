@@ -34,7 +34,7 @@ from typing import List, Dict, Optional
 
 # Import simulation components
 from geometry.geometry_base import BaseManifold, TopologyType
-from config import AgentConfig, SystemConfig
+from config import AgentConfig, SystemConfig, MaskConfig
 from meta.emergence import MultiScaleSystem
 from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
 from meta.consensus import ConsensusDetector
@@ -258,11 +258,19 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
         generators = generate_so3_generators(K_latent)
 
         # Create supports for point manifolds (required for gradient computation)
-        from geometry.geometry_base import create_full_support
-        supports = [
-            create_full_support(manifold)
-            for _ in range(n_agents)
-        ]
+        # For 0D manifolds, use SupportRegionSmooth (matches simulation_suite.py)
+        from agent.masking import SupportRegionSmooth
+        mask_cfg = MaskConfig()
+        supports = []
+        for _ in range(n_agents):
+            support = SupportRegionSmooth(
+                mask_binary=np.array(True),  # 0D: single point, always True
+                base_shape=(),
+                config=mask_cfg
+            )
+            # CRITICAL: Add base_manifold attribute for gradient engine compatibility
+            support.base_manifold = manifold
+            supports.append(support)
 
         for i in range(n_agents):
             # Create hierarchical agent directly (no need for regular Agent)
