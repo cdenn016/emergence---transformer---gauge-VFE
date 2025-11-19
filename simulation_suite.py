@@ -89,6 +89,17 @@ ENABLE_CROSS_SCALE_PRIORS = True   # Top-down prior propagation (ENABLE for part
 ENABLE_TIMESCALE_SEP   = False     # Timescale separation (DISABLED for now)
 INFO_METRIC            = "fisher_metric"  # Information change metric
 
+# --- Ouroboros: Multi-Scale Hyperprior Tower (Wheeler's "it from bit" extended) ---
+# Instead of priors from ONLY ζ+1 (Markov), receive priors from ALL levels above (non-Markov)
+# Agent at ζ receives: p from ζ+1, h^(1) from ζ+2, h^(2) from ζ+3, ...
+# Creates "ancestral memory" - each level carries information from entire tower above
+ENABLE_HYPERPRIOR_TOWER = False    # Enable multi-scale hyperprior propagation (OFF by default)
+MAX_HYPERPRIOR_DEPTH    = 3        # How many levels up to receive priors from (1=standard, 2+=tower)
+HYPERPRIOR_DECAY        = 0.3      # Exponential decay: λ_k = LAMBDA_PRIOR_ALIGN * decay^k
+                                   # k=0: parent (full strength)
+                                   # k=1: grandparent (decay^1 strength)
+                                   # k=2: great-grandparent (decay^2 strength)
+
 
 # --- Energy weights: Model cultural/hierarchical tension ---
 # Analogy: Individual in a culture facing pressure from multiple sources
@@ -859,6 +870,9 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     hier_config = HierarchicalConfig(
         enable_top_down_priors=ENABLE_CROSS_SCALE_PRIORS,
         enable_bottom_up_obs=True,
+        enable_hyperprior_tower=ENABLE_HYPERPRIOR_TOWER,
+        max_hyperprior_depth=MAX_HYPERPRIOR_DEPTH,
+        hyperprior_decay=HYPERPRIOR_DECAY,
         enable_timescale_filtering=ENABLE_TIMESCALE_SEP,
         info_change_metric=INFO_METRIC,
         consensus_check_interval=CONSENSUS_CHECK_INTERVAL,
