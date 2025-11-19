@@ -43,7 +43,7 @@ Prevents runaway emergence by enforcing a hard cap on hierarchy levels:
 ```python
 from meta.emergence import MultiScaleSystem
 from meta.consensus import ConsensusDetector
-from participatory_monitor import ParticipatoryMonitor
+from meta.participatory_monitor import ParticipatoryMonitor
 
 # Create multi-scale system with level cap
 system = MultiScaleSystem(manifold, max_emergence_levels=4)
@@ -227,7 +227,7 @@ This is the computational realization of Wheeler's participatory universe!
 
 ## Files
 
-- **`participatory_monitor.py`**: Main monitoring utility
+- **`meta/participatory_monitor.py`**: Main monitoring utility
 - **`test_participatory_monitor.py`**: Test/example script
 - **`meta/emergence.py`**: MultiScaleSystem with level cap
 - **`simulation_suite.py`**: Integration example
