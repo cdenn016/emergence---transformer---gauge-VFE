@@ -31,25 +31,24 @@ def test_participatory_monitor():
 
     # Configuration
     system_cfg = SystemConfig(
-        N=N,
-        K_latent=K,
-        sigma_obs=0.1,
-        sigma_self=0.01,
-        gauge_radius=0.3,
+        lambda_self=1.0,
+        lambda_belief_align=1.0,
+        lambda_prior_align=1.0,
+        lambda_obs=1.0,
+        lambda_phi=1.0,
         identical_priors="off"
     )
 
     agent_cfg = AgentConfig(
         K=K,
-        sigma_obs=0.1,
-        sigma_self=0.01,
-        mask_config=MaskConfig(mode="none")
+        observation_noise=0.1,
+        mask_config=MaskConfig(mask_type="gaussian")
     )
 
     training_cfg = TrainingConfig(
-        num_steps=100,
-        lr_mu=0.01,
-        lr_Sigma=0.005,
+        n_steps=100,
+        lr_mu_q=0.01,
+        lr_sigma_q=0.005,
         lr_phi=0.001,
     )
 
@@ -77,8 +76,7 @@ def test_participatory_monitor():
     print("\n3. Creating ConsensusDetector...")
     consensus_detector = ConsensusDetector(
         belief_threshold=0.5,
-        model_threshold=0.5,
-        min_cluster_size=2
+        model_threshold=0.5
     )
 
     # Create participatory monitor
