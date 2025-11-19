@@ -14,8 +14,8 @@ from agent.masking import MaskConfig
 from meta.emergence import MultiScaleSystem, HierarchicalAgent
 from meta.consensus import ConsensusDetector
 from meta.hierarchical_evolution import evolve_hierarchical
+from meta.participatory_monitor import ParticipatoryMonitor
 from math_utils.generators import generate_so3_generators
-from participatory_monitor import ParticipatoryMonitor
 
 
 def test_participatory_monitor():

@@ -815,7 +815,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     """
     from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
     from gradients.gradient_engine import compute_natural_gradients
-    from participatory_monitor import ParticipatoryMonitor
+    from meta.participatory_monitor import ParticipatoryMonitor
     from meta.consensus import ConsensusDetector
 
     print(f"\n{'='*70}")
