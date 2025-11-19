@@ -17,8 +17,28 @@ Order parameters tracked:
 5. Hierarchical depth: Max scale reached
 6. Emergence rate: Number of condensation events
 
-Usage:
-    python phase_transition_scanner.py --param LAMBDA_PRIOR_ALIGN --range 1.0 2.0 --points 20
+Two Scanning Modes
+------------------
+
+1. UNIFORM SPACING (default):
+   Fixed parameter spacing, traditional approach
+
+   Usage:
+       python phase_transition_scanner.py --param LAMBDA_PRIOR_ALIGN --min 1.0 --max 2.0 --points 20
+
+2. ENTROPY-ADAPTIVE (information-theoretic):
+   Steps chosen such that system entropy changes by ~1 bit per step.
+
+   This creates EMERGENT TIMESCALE SEPARATION:
+   - Scale-0 agents: Update at 1 bit/step (fundamental quantum)
+   - Scale-1 meta-agents: Need ~100 scale-0 steps for 1 bit change
+   - Scale-2: Even slower (~10000 scale-0 steps)
+
+   "Differences that make a difference" get larger at higher scales.
+
+   Usage:
+       python phase_transition_scanner.py --param LAMBDA_PRIOR_ALIGN --min 1.0 --max 2.0 \
+           --entropy-adaptive --target-bits 1.0
 
 Author: Chris & Christine
 Date: November 2025
@@ -74,6 +94,78 @@ class OrderParameters:
     # Stability
     converged: bool  # Did simulation complete without exploding?
     error_message: str = ""
+
+
+def compute_system_entropy(system, scale: Optional[int] = None) -> float:
+    """
+    Compute total differential entropy of the system in bits.
+
+    For Gaussian q_i ~ N(μ_q, Σ_q):
+        H(q_i) = (K/2) log_2(2πe) + (1/2) log_2|Σ_q|
+
+    Args:
+        system: MultiScaleSystem instance
+        scale: If provided, compute entropy only for agents at this scale.
+               If None, compute for all active agents.
+
+    Returns:
+        Total entropy in bits
+    """
+    if scale is not None:
+        # Get agents at specific scale
+        agents = system.agents.get(scale, [])
+        agents = [a for a in agents if a.is_active]
+    else:
+        # Get all active agents across all scales
+        agents = system.get_all_active_agents()
+
+    if len(agents) == 0:
+        return 0.0
+
+    total_entropy = 0.0
+
+    for agent in agents:
+        K = agent.K
+
+        # Compute log|Σ_q| using Cholesky (more stable)
+        try:
+            # Add small regularization for numerical stability
+            Sigma_reg = agent.Sigma_q + 1e-8 * np.eye(K)
+            sign, logdet = np.linalg.slogdet(Sigma_reg)
+
+            if sign <= 0:
+                # Covariance is not positive definite, skip this agent
+                continue
+
+            # Differential entropy: H = (K/2)log(2πe) + (1/2)log|Σ|
+            # Convert to bits by dividing by ln(2)
+            H_nats = 0.5 * K * np.log(2 * np.pi * np.e) + 0.5 * logdet
+            H_bits = H_nats / np.log(2)
+
+            total_entropy += H_bits
+
+        except np.linalg.LinAlgError:
+            # Numerical issue, skip this agent
+            continue
+
+    return total_entropy
+
+
+def compute_entropy_per_scale(system) -> Dict[int, float]:
+    """
+    Compute entropy separately for each scale.
+
+    Returns:
+        Dict mapping scale → entropy (bits)
+    """
+    entropy_per_scale = {}
+
+    for scale in range(len(system.agents)):
+        if len(system.agents[scale]) > 0:
+            H = compute_system_entropy(system, scale=scale)
+            entropy_per_scale[scale] = H
+
+    return entropy_per_scale
 
 
 def compute_order_parameters(history: Dict, system, param_value: float) -> OrderParameters:
@@ -272,6 +364,8 @@ def run_single_simulation(param_name: str, param_value: float, n_steps: int = 10
                 base_shape=(),
                 config=mask_cfg
             )
+            # CRITICAL: Add base_manifold attribute for gradient engine compatibility
+            support.base_manifold = manifold
 
             # Create regular agent (does full initialization)
             agent = Agent(
@@ -570,6 +664,145 @@ def scan_parameter(param_name: str, param_values: np.ndarray,
     return results
 
 
+def scan_parameter_entropy_adaptive(
+    param_name: str,
+    param_min: float,
+    param_max: float,
+    target_bits: float = 1.0,
+    n_steps: int = 100,
+    output_dir: Path = None,
+    max_points: int = 50
+) -> List[OrderParameters]:
+    """
+    Adaptive parameter scan where each step changes system entropy by ~target_bits.
+
+    This implements information-theoretic discretization: scale-0 agents update
+    at 1 bit/step, and meta-agents naturally evolve slower (emergent timescale
+    separation).
+
+    Args:
+        param_name: Parameter to scan
+        param_min, param_max: Parameter range
+        target_bits: Target entropy change per step (default: 1 bit)
+        n_steps: Number of evolution steps per simulation
+        output_dir: Directory to save results
+        max_points: Maximum number of parameter points (safety limit)
+
+    Returns:
+        List of OrderParameters with adaptive spacing
+    """
+    print(f"\n{'='*70}")
+    print(f"ENTROPY-ADAPTIVE SCAN: {param_name}")
+    print(f"{'='*70}")
+    print(f"Range: [{param_min:.3f}, {param_max:.3f}]")
+    print(f"Target entropy change: {target_bits:.2f} bits/step")
+    print(f"Steps per run: {n_steps}")
+    print()
+
+    results = []
+    param_values = []
+
+    # Start at minimum
+    current_param = param_min
+    param_values.append(current_param)
+
+    # Run first simulation to get baseline entropy
+    print(f"[1/??] {param_name} = {current_param:.4f} (baseline) ... ", end="", flush=True)
+    history, system, success = run_single_simulation(
+        param_name=param_name,
+        param_value=current_param,
+        n_steps=n_steps,
+        seed=42
+    )
+
+    if not success:
+        print("✗ FAILED - Cannot establish baseline")
+        return results
+
+    H_prev = compute_system_entropy(system)
+    order_params = compute_order_parameters(history, system, current_param)
+    results.append(order_params)
+    print(f"✓ H={H_prev:.2f} bits, E={order_params.final_energy:.4f}")
+
+    # Adaptive stepping
+    step_delta = 0.05  # Initial guess for parameter step
+    point_idx = 2
+
+    while current_param < param_max and point_idx <= max_points:
+        # Try candidate parameter value
+        candidate_param = min(current_param + step_delta, param_max)
+
+        print(f"[{point_idx}/??] {param_name} = {candidate_param:.4f} (Δλ={step_delta:.4f}) ... ",
+              end="", flush=True)
+
+        history, system, success = run_single_simulation(
+            param_name=param_name,
+            param_value=candidate_param,
+            n_steps=n_steps,
+            seed=42 + point_idx
+        )
+
+        if not success:
+            # Simulation failed - try smaller step
+            print(f"✗ FAILED - reducing step")
+            step_delta *= 0.5
+            if step_delta < 1e-4:
+                print("  ⚠️  Step size too small, stopping scan")
+                break
+            continue
+
+        # Compute entropy change
+        H_current = compute_system_entropy(system)
+        delta_H_bits = abs(H_current - H_prev)
+
+        order_params = compute_order_parameters(history, system, candidate_param)
+
+        print(f"ΔH={delta_H_bits:.3f} bits ", end="")
+
+        # Check if entropy change is within acceptable range
+        if delta_H_bits > target_bits * 1.5:
+            # Change too large - reject step and reduce delta
+            print(f"(too large, reducing step)")
+            step_delta *= 0.6
+        elif delta_H_bits < target_bits * 0.3:
+            # Change too small - reject step and increase delta
+            print(f"(too small, increasing step)")
+            step_delta *= 1.5
+            step_delta = min(step_delta, 0.2)  # Don't let it get too large
+        else:
+            # Accept step
+            print(f"✓ E={order_params.final_energy:.4f}, scales={order_params.max_scale}")
+            param_values.append(candidate_param)
+            results.append(order_params)
+            current_param = candidate_param
+            H_prev = H_current
+            point_idx += 1
+
+            # Adapt step size for next iteration based on how close we were
+            ratio = delta_H_bits / target_bits
+            if ratio > 1.2:
+                step_delta *= 0.8
+            elif ratio < 0.8:
+                step_delta *= 1.2
+
+    print(f"\n✓ Adaptive scan complete: {len(results)} points")
+    print(f"  Average spacing: Δλ = {(param_max - param_min) / len(results):.4f}")
+
+    # Save results
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        results_path = output_dir / f"scan_{param_name}_entropy_adaptive.pkl"
+        with open(results_path, 'wb') as f:
+            pickle.dump({
+                'results': results,
+                'param_values': np.array(param_values),
+                'target_bits': target_bits
+            }, f)
+        print(f"✓ Results saved to {results_path}")
+
+    return results
+
+
 def plot_phase_diagram(results: List[OrderParameters], param_name: str, output_dir: Path):
     """
     Plot phase diagram showing order parameters vs. control parameter.
@@ -702,21 +935,58 @@ def main():
         default="_results/phase_scan",
         help="Directory to save results"
     )
+    parser.add_argument(
+        "--entropy-adaptive",
+        action="store_true",
+        help="Use entropy-adaptive stepping (1 bit per step) instead of uniform spacing"
+    )
+    parser.add_argument(
+        "--target-bits",
+        type=float,
+        default=1.0,
+        help="Target entropy change per step for adaptive mode (default: 1.0 bit)"
+    )
+    parser.add_argument(
+        "--max-points",
+        type=int,
+        default=50,
+        help="Maximum number of points for adaptive scan (safety limit)"
+    )
 
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
 
-    # Generate parameter values
-    param_values = np.linspace(args.min, args.max, args.points)
+    # Run scan (uniform or entropy-adaptive)
+    if args.entropy_adaptive:
+        print("\n🔬 Using ENTROPY-ADAPTIVE scanning (information-theoretic discretization)")
+        print(f"   Target: {args.target_bits:.2f} bits per step")
+        print(f"   This ensures scale-0 agents update at 1 bit/step")
+        print(f"   Meta-agents will naturally evolve slower (emergent timescale separation)\n")
 
-    # Run scan
-    results = scan_parameter(
-        param_name=args.param,
-        param_values=param_values,
-        n_steps=args.steps,
-        output_dir=output_dir
-    )
+        results = scan_parameter_entropy_adaptive(
+            param_name=args.param,
+            param_min=args.min,
+            param_max=args.max,
+            target_bits=args.target_bits,
+            n_steps=args.steps,
+            output_dir=output_dir,
+            max_points=args.max_points
+        )
+    else:
+        print("\n📐 Using UNIFORM spacing")
+        print(f"   Points: {args.points} evenly spaced\n")
+
+        # Generate parameter values
+        param_values = np.linspace(args.min, args.max, args.points)
+
+        # Run scan
+        results = scan_parameter(
+            param_name=args.param,
+            param_values=param_values,
+            n_steps=args.steps,
+            output_dir=output_dir
+        )
 
     # Plot phase diagram
     plot_phase_diagram(results, args.param, output_dir)
