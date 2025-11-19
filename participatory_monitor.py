@@ -114,14 +114,11 @@ class ParticipatoryMonitor:
 
         # Detect consensus clusters ready to condense
         consensus_clusters = []
-        if self.consensus_detector is not None and 0 in self.system.agents:
-            scale_0_agents = self.system.agents[0]
-            if len(scale_0_agents) > 1:
-                try:
-                    clusters = self.consensus_detector.detect_consensus_clusters(scale_0_agents)
-                    consensus_clusters = clusters
-                except Exception as e:
-                    warnings.warn(f"Consensus detection failed: {e}")
+        if self.consensus_detector is not None:
+            # Note: ConsensusDetector.find_consensus_clusters() expects a MultiAgentSystem,
+            # but we have a MultiScaleSystem. For now, skip consensus detection in monitor.
+            # Consensus detection should be done externally in the evolution loop.
+            pass
 
         # Track prior changes
         prior_change_magnitudes = defaultdict(list)

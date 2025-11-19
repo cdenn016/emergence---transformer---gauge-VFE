@@ -815,6 +815,8 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     """
     from meta.hierarchical_evolution import HierarchicalEvolutionEngine, HierarchicalConfig
     from gradients.gradient_engine import compute_natural_gradients
+    from participatory_monitor import ParticipatoryMonitor
+    from meta.consensus import ConsensusDetector
 
     print(f"\n{'='*70}")
     print("HIERARCHICAL TRAINING WITH EMERGENCE")
@@ -839,14 +841,30 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         lr_phi=LR_PHI
     )
 
+    # Create participatory monitor for validation
+    print("\n  Initializing Participatory Monitor...")
+    consensus_detector = ConsensusDetector(
+        belief_threshold=CONSENSUS_THRESHOLD,
+        model_threshold=CONSENSUS_THRESHOLD
+    )
+    monitor = ParticipatoryMonitor(
+        system=multi_scale_system,
+        consensus_detector=consensus_detector,
+        check_interval=10,  # Monitor every 10 steps
+        prior_change_threshold=1e-4,
+        non_eq_threshold=1e-3
+    )
+
     # Create evolution engine (detector created internally)
-    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config)
+    engine = HierarchicalEvolutionEngine(multi_scale_system, hier_config, participatory_monitor=monitor)
 
     print(f"  Steps              : {N_STEPS}")
     print(f"  Consensus check    : every {CONSENSUS_CHECK_INTERVAL} steps")
     print(f"  Consensus threshold: {CONSENSUS_THRESHOLD}")
     print(f"  Timescale sep      : {ENABLE_TIMESCALE_SEP}")
     print(f"  Cross-scale priors : {ENABLE_CROSS_SCALE_PRIORS}")
+    print(f"  Max emergence levels: {multi_scale_system.max_emergence_levels}")
+    print(f"  Participatory monitor: ENABLED (validation every 10 steps)")
     print()
 
     # Storage for history
@@ -947,6 +965,12 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
 
     print("-" * 70)
     print("✓ Training complete")
+
+    # Print participatory monitor validation
+    print("\n" + "="*70)
+    print("PARTICIPATORY DYNAMICS VALIDATION")
+    print("="*70)
+    monitor.print_summary(max_levels=multi_scale_system.max_emergence_levels)
 
     # Save history
     hist_path = output_dir / "hierarchical_history.pkl"
