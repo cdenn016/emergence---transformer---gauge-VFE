@@ -879,10 +879,10 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
     print(f"  Participatory monitor: ENABLED (validation every 10 steps)")
     print()
 
-    # Storage for history
+    # Storage for history (use 'total' not 'total_energy' for analysis suite compatibility)
     history = {
         'step': [],
-        'total_energy': [],
+        'total': [],  # Changed from 'total_energy' to match standard training format
         'n_scales': [],
         'n_active_agents': [],
         'n_condensations': [],
@@ -949,7 +949,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
 
         # Record metrics
         history['step'].append(step)
-        history['total_energy'].append(total_energy)
+        history['total'].append(total_energy)
         history['n_scales'].append(n_scales)
         history['n_active_agents'].append(total_active)
         history['n_condensations'].append(metrics.get('n_condensations', 0))
@@ -1009,7 +1009,7 @@ def run_hierarchical_training(multi_scale_system, output_dir: Path):
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
         # Energy evolution with emergence events
-        ax1.plot(history['step'], history['total_energy'], 'b-', linewidth=2, label='Energy')
+        ax1.plot(history['step'], history['total'], 'b-', linewidth=2, label='Energy')
         for event in history['emergence_events']:
             ax1.axvline(x=event['step'], color='red', alpha=0.3, linestyle='--', linewidth=2)
         ax1.set_xlabel('Step')
@@ -1264,8 +1264,8 @@ def main():
 
     if ENABLE_EMERGENCE:
         # Hierarchical history is a dict
-        if history['total_energy']:
-            print(f"Final energy: {history['total_energy'][-1]:.4f}")
+        if history['total']:
+            print(f"Final energy: {history['total'][-1]:.4f}")
             print(f"Emergence events: {len(history['emergence_events'])}")
             print(f"Final scales: {history['n_scales'][-1]}")
     else:
