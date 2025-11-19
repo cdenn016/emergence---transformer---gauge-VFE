@@ -378,7 +378,10 @@ class MultiScaleSystem:
         etc.
     """
     
-    def __init__(self, base_manifold: BaseManifold, max_emergence_levels: Optional[int] = None):
+    def __init__(self, base_manifold: BaseManifold,
+                 max_emergence_levels: Optional[int] = None,
+                 max_meta_membership: Optional[int] = None,
+                 max_total_agents: Optional[int] = None):
         self.base_manifold = base_manifold
 
         # agents[scale] = list of agents at that scale
@@ -392,6 +395,16 @@ class MultiScaleSystem:
         # None = unlimited (not recommended), otherwise max scale allowed
         # e.g., max_emergence_levels=3 allows scales 0, 1, 2, 3
         self.max_emergence_levels = max_emergence_levels
+
+        # Cap on meta-agent membership to control exponential growth
+        # None = unlimited, otherwise max constituents per meta-agent
+        # e.g., max_meta_membership=10 limits each meta-agent to 10 constituents
+        self.max_meta_membership = max_meta_membership
+
+        # Hard cap on total agents across ALL scales
+        # None = unlimited, otherwise max total agents in system
+        # e.g., max_total_agents=1000 prevents system from exceeding 1000 agents total
+        self.max_total_agents = max_total_agents
     
     def add_base_agent(self, agent_config: AgentConfig, agent_id: str = None) -> HierarchicalAgent:
         """
@@ -473,12 +486,29 @@ class MultiScaleSystem:
                   f"(max allowed: {self.max_emergence_levels}). Skipping condensation.")
             return []
 
+        # Check total agent cap BEFORE creating new meta-agents
+        if self.max_total_agents is not None:
+            current_total = sum(len(agents) for agents in self.agents.values())
+            n_new_meta = len([p for p in partitions if len(p) >= 2])  # Count valid partitions
+            if current_total + n_new_meta > self.max_total_agents:
+                print(f"[Agent Cap] Cannot form {n_new_meta} meta-agents: would exceed max_total_agents "
+                      f"({current_total + n_new_meta} > {self.max_total_agents}). Skipping condensation.")
+                return []
+
         new_meta_agents = []
 
         for partition in partitions:
             if len(partition) < 2:
                 print(f"[Warning] Skipping singleton cluster: {partition}")
                 continue
+
+            # Check meta-agent membership cap
+            if self.max_meta_membership is not None and len(partition) > self.max_meta_membership:
+                # Trim partition to max size (keep most coherent members)
+                # For now, just take first N members (could be improved to select by coherence)
+                original_size = len(partition)
+                partition = partition[:self.max_meta_membership]
+                print(f"[Membership Cap] Trimmed partition from {original_size} to {self.max_meta_membership} constituents")
 
             # Get constituent agents
             constituents = [source_agents[i] for i in partition]
