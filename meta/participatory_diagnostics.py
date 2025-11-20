@@ -157,26 +157,24 @@ class ParticipatoryDiagnostics:
                 compute_belief_alignment_energy,
                 compute_prior_alignment_energy
             )
+            from meta.gradient_adapter import create_gradient_adapter
 
-            # Build index mapping for active agents
-            active_agents = self.system.get_all_active_agents()
+            # Create adapter to make MultiScaleSystem compatible with energy functions
+            # This provides flat agent list and proper neighbor lookup
+            adapter = create_gradient_adapter(self.system)
+
+            # Find agent index in flat active agent list
             try:
-                agent_idx = active_agents.index(agent)
+                agent_idx = adapter.agents.index(agent)
             except ValueError:
                 agent_idx = None
 
             if agent_idx is not None:
                 if config.has_belief_alignment:
-                    try:
-                        E_belief_align = compute_belief_alignment_energy(self.system, agent_idx)
-                    except:
-                        pass
+                    E_belief_align = compute_belief_alignment_energy(adapter, agent_idx)
 
                 if config.has_prior_alignment:
-                    try:
-                        E_prior_align = compute_prior_alignment_energy(self.system, agent_idx)
-                    except:
-                        pass
+                    E_prior_align = compute_prior_alignment_energy(adapter, agent_idx)
 
         E_obs = 0.0  # Observation energy not tracked per agent
         E_total = E_self + E_belief_align + E_prior_align + E_obs
@@ -216,6 +214,12 @@ class ParticipatoryDiagnostics:
         total_prior = 0.0
         coherences = []
 
+        # Build adapter once if needed for full energies (expensive!)
+        adapter = None
+        if self.compute_full_energies:
+            from meta.gradient_adapter import create_gradient_adapter
+            adapter = create_gradient_adapter(self.system)
+
         for agent in agents:
             if agent.is_active:
                 # Self-energy - always computed (fast)
@@ -223,27 +227,21 @@ class ParticipatoryDiagnostics:
                 total_self += E_self
 
                 # Alignment energies - only if requested (EXPENSIVE!)
-                if self.compute_full_energies:
+                if self.compute_full_energies and adapter is not None:
                     from free_energy_clean import (
                         compute_belief_alignment_energy,
                         compute_prior_alignment_energy
                     )
 
-                    active_agents = self.system.get_all_active_agents()
+                    # Find agent index in flat active agent list
                     try:
-                        agent_idx = active_agents.index(agent)
+                        agent_idx = adapter.agents.index(agent)
 
                         if config.has_belief_alignment:
-                            try:
-                                total_belief += compute_belief_alignment_energy(self.system, agent_idx)
-                            except:
-                                pass
+                            total_belief += compute_belief_alignment_energy(adapter, agent_idx)
 
                         if config.has_prior_alignment:
-                            try:
-                                total_prior += compute_prior_alignment_energy(self.system, agent_idx)
-                            except:
-                                pass
+                            total_prior += compute_prior_alignment_energy(adapter, agent_idx)
                     except ValueError:
                         pass  # Agent not in active list
 
