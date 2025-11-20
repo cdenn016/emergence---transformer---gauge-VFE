@@ -76,8 +76,8 @@ class MetaAgentAnalyzer:
                 agents_by_scale[scale].append(agent_data)
 
                 # Track meta-agent descriptors
-                if agent.is_meta and hasattr(agent, 'meta_descriptor'):
-                    desc = agent.meta_descriptor
+                if agent.is_meta and hasattr(agent, 'meta') and agent.meta is not None:
+                    desc = agent.meta
                     meta_agent_data = {
                         'scale': desc.scale_index.scale,
                         'local_index': desc.scale_index.local_index,
@@ -203,8 +203,8 @@ class MetaAgentAnalyzer:
 
         for scale, agents in self.system.agents.items():
             for agent in agents:
-                if agent.is_meta and hasattr(agent, 'meta_descriptor'):
-                    desc = agent.meta_descriptor
+                if agent.is_meta and hasattr(agent, 'meta') and agent.meta is not None:
+                    desc = agent.meta
                     parent_id = f"s{desc.scale_index.scale}_i{desc.scale_index.local_index}"
 
                     for const_idx in desc.constituent_indices:
