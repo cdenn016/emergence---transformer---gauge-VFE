@@ -45,21 +45,23 @@ class EnergyVisualizer:
         Args:
             figsize: Figure size
         """
-        if not self.diagnostics.energy_snapshots:
-            raise ValueError("No energy snapshots recorded. Run diagnostics during evolution.")
+        if not self.diagnostics.scale_history:
+            raise ValueError("No scale history recorded. Run diagnostics during evolution.")
 
-        # Extract data
-        times = [snap['time'] for snap in self.diagnostics.energy_snapshots]
-        scale_energy = defaultdict(lambda: {'self': [], 'belief': [], 'prior': [], 'total': []})
+        # Extract data from scale_history
+        scale_energy = {}
+        for scale, snapshots in self.diagnostics.scale_history.items():
+            times = [snap.step for snap in snapshots]
+            scale_energy[scale] = {
+                'times': times,
+                'self': [snap.total_self_energy for snap in snapshots],
+                'belief': [snap.total_belief_align for snap in snapshots],
+                'prior': [snap.total_prior_align for snap in snapshots],
+                'total': [snap.total_energy for snap in snapshots]
+            }
 
-        for snap in self.diagnostics.energy_snapshots:
-            for scale, energy_data in snap['by_scale'].items():
-                scale_energy[scale]['self'].append(energy_data['E_self'])
-                scale_energy[scale]['belief'].append(energy_data['E_belief_align'])
-                scale_energy[scale]['prior'].append(energy_data['E_prior_align'])
-                scale_energy[scale]['total'].append(energy_data['E_total'])
-
-        max_scale = max(scale_energy.keys())
+        if not scale_energy:
+            raise ValueError("No scale data available")
 
         # Create figure with subplots for each scale
         n_scales = len(scale_energy)
@@ -72,6 +74,7 @@ class EnergyVisualizer:
 
         for idx, (scale, energies) in enumerate(sorted(scale_energy.items())):
             ax = axes[idx]
+            times = energies['times']
 
             # Stack plot for energy components
             ax.fill_between(times, 0, energies['self'],
@@ -91,7 +94,7 @@ class EnergyVisualizer:
             ax.legend(loc='upper right', fontsize=9, ncol=4)
             ax.grid(alpha=0.3, axis='y')
 
-        axes[-1].set_xlabel('Time', fontsize=12)
+        axes[-1].set_xlabel('Step', fontsize=12)
         fig.suptitle('Multi-Scale Energy Landscape Decomposition', fontsize=16, fontweight='bold')
 
         plt.tight_layout()
@@ -104,44 +107,49 @@ class EnergyVisualizer:
         Args:
             figsize: Figure size
         """
-        if len(self.diagnostics.energy_snapshots) < 2:
-            raise ValueError("Need at least 2 snapshots to compute energy flux")
+        if not self.diagnostics.scale_history:
+            raise ValueError("No scale history recorded")
 
-        # Compute energy flux
-        times = []
-        scale_flux = defaultdict(list)
+        # Compute energy flux for each scale
+        scale_flux = {}
 
-        for i in range(1, len(self.diagnostics.energy_snapshots)):
-            snap_prev = self.diagnostics.energy_snapshots[i - 1]
-            snap_curr = self.diagnostics.energy_snapshots[i]
-
-            dt = snap_curr['time'] - snap_prev['time']
-            if dt == 0:
+        for scale, snapshots in self.diagnostics.scale_history.items():
+            if len(snapshots) < 2:
                 continue
 
-            times.append(snap_curr['time'])
+            times = []
+            flux = []
 
-            for scale in snap_curr['by_scale'].keys():
-                if scale in snap_prev['by_scale']:
-                    E_prev = snap_prev['by_scale'][scale]['E_total']
-                    E_curr = snap_curr['by_scale'][scale]['E_total']
-                    flux = (E_curr - E_prev) / dt
-                    scale_flux[scale].append(flux)
-                else:
-                    scale_flux[scale].append(0)
+            for i in range(1, len(snapshots)):
+                prev_snap = snapshots[i - 1]
+                curr_snap = snapshots[i]
+
+                dt = curr_snap.step - prev_snap.step
+                if dt == 0:
+                    continue
+
+                dE = curr_snap.total_energy - prev_snap.total_energy
+                flux.append(dE / dt)
+                times.append(curr_snap.step)
+
+            if times:
+                scale_flux[scale] = {'times': times, 'flux': flux}
+
+        if not scale_flux:
+            raise ValueError("Insufficient data to compute energy flux")
 
         fig, ax = plt.subplots(figsize=figsize)
 
         # Plot flux for each scale
         colors = plt.cm.viridis(np.linspace(0, 1, len(scale_flux)))
 
-        for (scale, flux), color in zip(sorted(scale_flux.items()), colors):
-            ax.plot(times[:len(flux)], flux, marker='o', label=f'ζ={scale}',
+        for (scale, data), color in zip(sorted(scale_flux.items()), colors):
+            ax.plot(data['times'], data['flux'], marker='o', label=f'ζ={scale}',
                    color=color, linewidth=2, alpha=0.8)
 
         ax.axhline(y=0, color='k', linestyle='--', linewidth=1, alpha=0.5)
-        ax.set_xlabel('Time', fontsize=12)
-        ax.set_ylabel('Energy Flux (dE/dt)', fontsize=12)
+        ax.set_xlabel('Step', fontsize=12)
+        ax.set_ylabel('Energy Flux (dE/dstep)', fontsize=12)
         ax.set_title('Energy Flow Across Scales', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10)
         ax.grid(alpha=0.3)
@@ -151,7 +159,7 @@ class EnergyVisualizer:
 
     def plot_prior_evolution(self, figsize: Tuple[int, int] = (14, 6)) -> plt.Figure:
         """
-        Plot prior change history (KL divergence from previous prior).
+        Plot prior change history (L2 norm from previous prior).
 
         Shows top-down information flow.
 
@@ -161,59 +169,47 @@ class EnergyVisualizer:
         if not self.diagnostics.prior_changes:
             raise ValueError("No prior changes recorded")
 
-        # Organize by scale and agent
-        scale_agent_changes = defaultdict(lambda: defaultdict(list))
-        scale_agent_times = defaultdict(lambda: defaultdict(list))
+        # Organize by agent - prior_changes is List[Tuple[step, agent_id, change]]
+        agent_changes = defaultdict(lambda: {'steps': [], 'changes': []})
 
-        for change in self.diagnostics.prior_changes:
-            scale = change['scale']
-            agent_id = change['local_index']
-            scale_agent_changes[scale][agent_id].append(change['kl_change'])
-            scale_agent_times[scale][agent_id].append(change['time'])
+        for step, agent_id, change in self.diagnostics.prior_changes:
+            agent_changes[agent_id]['steps'].append(step)
+            agent_changes[agent_id]['changes'].append(change)
 
-        # Create subplots for each scale
-        scales = sorted(scale_agent_changes.keys())
-        n_scales = len(scales)
+        if not agent_changes:
+            raise ValueError("No prior changes to plot")
 
-        fig, axes = plt.subplots(n_scales, 1, figsize=figsize, sharex=True)
+        # Create plot
+        fig, ax = plt.subplots(figsize=figsize)
 
-        if n_scales == 1:
-            axes = [axes]
+        # Plot each agent's prior changes
+        for agent_id, data in sorted(agent_changes.items()):
+            ax.plot(data['steps'], data['changes'], marker='o', alpha=0.6,
+                   label=f'{agent_id}', linewidth=1.5, markersize=4)
 
-        for idx, scale in enumerate(scales):
-            ax = axes[idx]
+        # Compute and plot average
+        all_steps = []
+        all_changes = []
+        for data in agent_changes.values():
+            all_steps.extend(data['steps'])
+            all_changes.extend(data['changes'])
 
-            # Plot each agent's prior changes
-            for agent_id, changes in scale_agent_changes[scale].items():
-                times = scale_agent_times[scale][agent_id]
-                ax.plot(times, changes, marker='o', alpha=0.6,
-                       label=f'Agent {agent_id}', linewidth=1.5)
+        if all_steps:
+            unique_steps = sorted(set(all_steps))
+            avg_changes = []
+            for step in unique_steps:
+                changes_at_step = [all_changes[i] for i, s in enumerate(all_steps) if s == step]
+                avg_changes.append(np.mean(changes_at_step))
 
-            # Average line
-            all_times = []
-            all_changes = []
-            for agent_id in scale_agent_changes[scale].keys():
-                all_times.extend(scale_agent_times[scale][agent_id])
-                all_changes.extend(scale_agent_changes[scale][agent_id])
+            ax.plot(unique_steps, avg_changes, 'k-', linewidth=3,
+                   label='Average', alpha=0.8)
 
-            if all_times:
-                # Compute moving average
-                unique_times = sorted(set(all_times))
-                avg_changes = []
-                for t in unique_times:
-                    changes_at_t = [all_changes[i] for i, tt in enumerate(all_times) if tt == t]
-                    avg_changes.append(np.mean(changes_at_t))
-
-                ax.plot(unique_times, avg_changes, 'k-', linewidth=3,
-                       label='Average', alpha=0.8)
-
-            ax.set_ylabel(f'KL Change\n(ζ={scale})', fontsize=11, fontweight='bold')
-            ax.set_yscale('log')
-            ax.legend(loc='upper right', fontsize=8, ncol=3)
-            ax.grid(alpha=0.3, which='both')
-
-        axes[-1].set_xlabel('Time', fontsize=12)
-        fig.suptitle('Prior Evolution (Top-Down Information Flow)', fontsize=16, fontweight='bold')
+        ax.set_xlabel('Step', fontsize=12)
+        ax.set_ylabel('Prior Change (L2 norm)', fontsize=12)
+        ax.set_title('Prior Evolution (Top-Down Information Flow)', fontsize=14, fontweight='bold')
+        ax.set_yscale('log')
+        ax.legend(loc='upper right', fontsize=9, ncol=3)
+        ax.grid(alpha=0.3, which='both')
 
         plt.tight_layout()
         return fig
@@ -223,63 +219,92 @@ class EnergyVisualizer:
         Plot non-equilibrium indicators dashboard.
 
         Shows:
-        - Energy variance
-        - Gradient variance
-        - Information flux
-        - Equilibrium score
+        - Energy variance across scales
+        - Gradient variance (from agent_history)
+        - Energy flux magnitude
+        - Non-equilibrium score
 
         Args:
             figsize: Figure size
         """
-        if not self.diagnostics.energy_snapshots:
-            raise ValueError("No snapshots recorded")
+        if not self.diagnostics.scale_history:
+            raise ValueError("No scale history recorded")
 
-        times = [snap['time'] for snap in self.diagnostics.energy_snapshots]
+        # Get all unique timesteps
+        all_steps = set()
+        for snapshots in self.diagnostics.scale_history.values():
+            all_steps.update(snap.step for snap in snapshots)
+        steps = sorted(all_steps)
 
-        # Extract indicators
+        # Energy variance across scales at each timestep
         energy_vars = []
+        for step in steps:
+            energies_at_step = []
+            for scale_snapshots in self.diagnostics.scale_history.values():
+                matching = [s.total_energy for s in scale_snapshots if s.step == step]
+                if matching:
+                    energies_at_step.append(matching[0])
+            energy_vars.append(np.var(energies_at_step) if len(energies_at_step) > 1 else 0)
+
+        # Gradient variance from tracked agents
         gradient_vars = []
-        info_fluxes = []
+        for step in steps:
+            grad_norms = []
+            for agent_history in self.diagnostics.agent_history.values():
+                matching = [s.grad_mu_norm for s in agent_history if s.step == step]
+                if matching:
+                    grad_norms.append(matching[0])
+            gradient_vars.append(np.var(grad_norms) if len(grad_norms) > 1 else 0)
 
-        for snap in self.diagnostics.energy_snapshots:
-            # Energy variance across scales
-            energies = [scale_data['E_total'] for scale_data in snap['by_scale'].values()]
-            energy_vars.append(np.var(energies) if len(energies) > 1 else 0)
+        # Energy flux magnitude (average across scales)
+        flux_magnitudes = []
+        for i, step in enumerate(steps):
+            if i == 0:
+                flux_magnitudes.append(0)
+                continue
 
-            # For now, use placeholder for gradient variance and info flux
-            # These would need to be tracked in diagnostics
-            gradient_vars.append(0)
-            info_fluxes.append(0)
+            fluxes = []
+            for scale_snapshots in self.diagnostics.scale_history.values():
+                curr = [s for s in scale_snapshots if s.step == step]
+                prev = [s for s in scale_snapshots if s.step == steps[i-1]]
+                if curr and prev:
+                    dE = curr[0].total_energy - prev[0].total_energy
+                    dt = step - steps[i-1]
+                    if dt > 0:
+                        fluxes.append(abs(dE / dt))
 
-        # Compute equilibrium score (0 = equilibrium, 1 = far from equilibrium)
-        # Based on energy variance
+            flux_magnitudes.append(np.mean(fluxes) if fluxes else 0)
+
+        # Non-equilibrium score (0 = equilibrium, 1 = far from equilibrium)
         max_var = max(energy_vars) if energy_vars else 1
         eq_scores = [1 - np.exp(-v / (max_var + 1e-8)) for v in energy_vars]
 
         fig, axes = plt.subplots(4, 1, figsize=figsize, sharex=True)
 
         # Energy variance
-        axes[0].plot(times, energy_vars, 'o-', color='#E74C3C', linewidth=2)
+        axes[0].plot(steps, energy_vars, 'o-', color='#E74C3C', linewidth=2)
         axes[0].set_ylabel('Energy\nVariance', fontsize=11, fontweight='bold')
         axes[0].grid(alpha=0.3)
-        axes[0].fill_between(times, 0, energy_vars, alpha=0.3, color='#E74C3C')
+        axes[0].fill_between(steps, 0, energy_vars, alpha=0.3, color='#E74C3C')
 
         # Gradient variance
-        axes[1].plot(times, gradient_vars, 'o-', color='#3498DB', linewidth=2)
+        axes[1].plot(steps, gradient_vars, 'o-', color='#3498DB', linewidth=2)
         axes[1].set_ylabel('Gradient\nVariance', fontsize=11, fontweight='bold')
         axes[1].grid(alpha=0.3)
+        axes[1].fill_between(steps, 0, gradient_vars, alpha=0.3, color='#3498DB')
 
-        # Information flux
-        axes[2].plot(times, info_fluxes, 'o-', color='#2ECC71', linewidth=2)
-        axes[2].set_ylabel('Information\nFlux', fontsize=11, fontweight='bold')
+        # Energy flux magnitude
+        axes[2].plot(steps, flux_magnitudes, 'o-', color='#2ECC71', linewidth=2)
+        axes[2].set_ylabel('Energy Flux\nMagnitude', fontsize=11, fontweight='bold')
         axes[2].grid(alpha=0.3)
+        axes[2].fill_between(steps, 0, flux_magnitudes, alpha=0.3, color='#2ECC71')
 
-        # Equilibrium score
-        axes[3].plot(times, eq_scores, 'o-', color='#9B59B6', linewidth=2)
+        # Non-equilibrium score
+        axes[3].plot(steps, eq_scores, 'o-', color='#9B59B6', linewidth=2)
         axes[3].axhline(y=0.5, color='k', linestyle='--', alpha=0.5, label='Threshold')
-        axes[3].fill_between(times, 0, eq_scores, alpha=0.3, color='#9B59B6')
+        axes[3].fill_between(steps, 0, eq_scores, alpha=0.3, color='#9B59B6')
         axes[3].set_ylabel('Non-Equilibrium\nScore', fontsize=11, fontweight='bold')
-        axes[3].set_xlabel('Time', fontsize=12)
+        axes[3].set_xlabel('Step', fontsize=12)
         axes[3].legend(fontsize=9)
         axes[3].grid(alpha=0.3)
 
@@ -290,38 +315,53 @@ class EnergyVisualizer:
 
     def plot_energy_per_agent(self,
                              scale: int = 0,
-                             snapshot_idx: int = -1,
+                             step: Optional[int] = None,
                              figsize: Tuple[int, int] = (12, 6)) -> plt.Figure:
         """
-        Plot energy decomposition for individual agents at a specific scale.
+        Plot energy decomposition for individual agents at a specific scale and step.
 
         Args:
             scale: Which scale to visualize
-            snapshot_idx: Which snapshot (-1 for latest)
+            step: Which step to visualize (None for latest)
             figsize: Figure size
         """
-        if not self.diagnostics.energy_snapshots:
-            raise ValueError("No energy snapshots recorded")
+        if not self.diagnostics.agent_history:
+            raise ValueError("No agent history recorded")
 
-        snapshot = self.diagnostics.energy_snapshots[snapshot_idx]
+        # Find agents at the target scale and step
+        agent_data = []
 
-        if 'by_agent' not in snapshot:
-            raise ValueError("Agent-level energy data not available")
+        for agent_id, history in self.diagnostics.agent_history.items():
+            # Find snapshots at the target scale
+            scale_snapshots = [s for s in history if s.scale == scale]
+            if not scale_snapshots:
+                continue
 
-        # Filter agents at target scale
-        agents_at_scale = [(idx, data) for idx, data in snapshot['by_agent'].items()
-                          if idx[0] == scale]  # idx is (scale, local_index)
+            # Get the snapshot at the target step (or latest)
+            if step is None:
+                snapshot = scale_snapshots[-1]
+            else:
+                matching = [s for s in scale_snapshots if s.step == step]
+                if not matching:
+                    continue
+                snapshot = matching[0]
 
-        if not agents_at_scale:
-            raise ValueError(f"No agents at scale {scale}")
+            agent_data.append((agent_id, snapshot))
 
-        # Sort by local index
-        agents_at_scale.sort(key=lambda x: x[0][1])
+        if not agent_data:
+            raise ValueError(f"No agent data at scale {scale}" +
+                           (f" and step {step}" if step is not None else ""))
 
-        agent_ids = [f"A{idx[1]}" for idx, _ in agents_at_scale]
-        E_self = [data['E_self'] for _, data in agents_at_scale]
-        E_belief = [data['E_belief_align'] for _, data in agents_at_scale]
-        E_prior = [data['E_prior_align'] for _, data in agents_at_scale]
+        # Sort by agent_id for consistent ordering
+        agent_data.sort(key=lambda x: x[0])
+
+        agent_ids = [aid for aid, _ in agent_data]
+        E_self = [snap.E_self for _, snap in agent_data]
+        E_belief = [snap.E_belief_align for _, snap in agent_data]
+        E_prior = [snap.E_prior_align for _, snap in agent_data]
+
+        # Use the step from the first snapshot for title
+        actual_step = agent_data[0][1].step
 
         fig, ax = plt.subplots(figsize=figsize)
 
@@ -334,10 +374,10 @@ class EnergyVisualizer:
 
         ax.set_xlabel('Agent', fontsize=12)
         ax.set_ylabel('Energy', fontsize=12)
-        ax.set_title(f'Energy Decomposition per Agent (Scale {scale}, t={snapshot["time"]})',
+        ax.set_title(f'Energy Decomposition per Agent (Scale {scale}, Step {actual_step})',
                     fontsize=14, fontweight='bold')
         ax.set_xticks(x)
-        ax.set_xticklabels(agent_ids)
+        ax.set_xticklabels([aid.split('_')[-1][:8] for aid in agent_ids], rotation=45, ha='right')
         ax.legend(fontsize=10)
         ax.grid(alpha=0.3, axis='y')
 
@@ -360,36 +400,36 @@ class EnergyVisualizer:
             print("Plotly not available. Install with: pip install plotly")
             return None
 
-        if not self.diagnostics.energy_snapshots:
-            raise ValueError("No energy snapshots recorded")
+        if not self.diagnostics.agent_history:
+            raise ValueError("No agent history recorded")
 
-        # Collect data
-        times = []
-        agent_energies = defaultdict(list)
+        # Collect data from agent_history
+        agent_step_energy = defaultdict(lambda: defaultdict(float))
+        all_steps = set()
 
-        for snap in self.diagnostics.energy_snapshots:
-            if 'by_agent' not in snap:
-                continue
+        for agent_id, history in self.diagnostics.agent_history.items():
+            scale_history = [s for s in history if s.scale == scale]
+            for snapshot in scale_history:
+                agent_step_energy[agent_id][snapshot.step] = snapshot.E_total
+                all_steps.add(snapshot.step)
 
-            times.append(snap['time'])
-
-            # Get all agents at this scale
-            for (s, local_idx), data in snap['by_agent'].items():
-                if s == scale:
-                    agent_energies[local_idx].append(data['E_total'])
-
-        if not agent_energies:
+        if not agent_step_energy:
             raise ValueError(f"No agent-level data at scale {scale}")
 
         # Create meshgrid
-        agent_indices = sorted(agent_energies.keys())
-        Z = np.zeros((len(times), len(agent_indices)))
+        agent_ids = sorted(agent_step_energy.keys())
+        steps = sorted(all_steps)
 
-        for i, agent_idx in enumerate(agent_indices):
-            energies = agent_energies[agent_idx]
-            Z[:len(energies), i] = energies
+        Z = np.zeros((len(steps), len(agent_ids)))
 
-        X, Y = np.meshgrid(agent_indices, times)
+        for i, agent_id in enumerate(agent_ids):
+            for j, step in enumerate(steps):
+                if step in agent_step_energy[agent_id]:
+                    Z[j, i] = agent_step_energy[agent_id][step]
+
+        # Create mesh
+        agent_indices = list(range(len(agent_ids)))
+        X, Y = np.meshgrid(agent_indices, steps)
 
         # Create 3D surface
         fig = go.Figure(data=[go.Surface(x=X, y=Y, z=Z, colorscale='Viridis')])
@@ -398,7 +438,7 @@ class EnergyVisualizer:
             title=f'Energy Landscape Evolution (Scale {scale})',
             scene=dict(
                 xaxis_title='Agent Index',
-                yaxis_title='Time',
+                yaxis_title='Step',
                 zaxis_title='Energy'
             ),
             width=900,

@@ -418,7 +418,7 @@ def _run_hierarchical_training(system, cfg, output_dir):
         if cfg.generate_meta_visualizations:
             if step % cfg.snapshot_interval == 0 or step == cfg.n_steps - 1:
                 analyzer.capture_snapshot()
-            diagnostics.capture_snapshot()
+            diagnostics.record_snapshot(step)
 
         # Record metrics
         history['step'].append(step)
