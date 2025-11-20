@@ -173,8 +173,8 @@ class EnergyVisualizer:
         agent_changes = defaultdict(lambda: {'steps': [], 'changes': []})
 
         for step, agent_id, change in self.diagnostics.prior_changes:
-            agent_changes[agent_id]['steps'].append(step)
-            agent_changes[agent_id]['changes'].append(change)
+            agent_changes[agent_id]['steps'].append(int(step))  # Ensure int
+            agent_changes[agent_id]['changes'].append(float(change))  # Ensure float
 
         if not agent_changes:
             raise ValueError("No prior changes to plot")
@@ -377,7 +377,15 @@ class EnergyVisualizer:
         ax.set_title(f'Energy Decomposition per Agent (Scale {scale}, Step {actual_step})',
                     fontsize=14, fontweight='bold')
         ax.set_xticks(x)
-        ax.set_xticklabels([aid.split('_')[-1][:8] for aid in agent_ids], rotation=45, ha='right')
+        # Handle both string and int agent IDs
+        labels = []
+        for aid in agent_ids:
+            aid_str = str(aid)
+            if '_' in aid_str:
+                labels.append(aid_str.split('_')[-1][:8])
+            else:
+                labels.append(aid_str[:8])
+        ax.set_xticklabels(labels, rotation=45, ha='right')
         ax.legend(fontsize=10)
         ax.grid(alpha=0.3, axis='y')
 
