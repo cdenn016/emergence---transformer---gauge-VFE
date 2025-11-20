@@ -437,6 +437,21 @@ def _run_hierarchical_training(system, cfg, output_dir):
         history['n_active_agents'].append(actual_n_active)
         history['n_condensations'].append(metrics.get('n_condensations', 0))
 
+        # Check early stopping conditions
+        stop_reason = None
+        if cfg.stop_if_n_scales_reached and actual_n_scales >= cfg.stop_if_n_scales_reached:
+            stop_reason = f"Reached target scale count: {actual_n_scales}/{cfg.stop_if_n_scales_reached}"
+        elif cfg.stop_if_n_condensations:
+            total_condensations = sum(history['n_condensations'])
+            if total_condensations >= cfg.stop_if_n_condensations:
+                stop_reason = f"Reached target condensation count: {total_condensations}/{cfg.stop_if_n_condensations}"
+        elif cfg.stop_if_min_active_agents and actual_n_active < cfg.stop_if_min_active_agents:
+            stop_reason = f"Active agents below minimum: {actual_n_active}/{cfg.stop_if_min_active_agents}"
+
+        if stop_reason:
+            print(f"\n⏹️  Early stop at step {step}: {stop_reason}")
+            break
+
         # Log emergence events
         if metrics.get('n_condensations', 0) > 0:
             event = {

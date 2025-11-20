@@ -35,6 +35,11 @@ class SimulationConfig:
     log_every: int = 1
     skip_initial_steps: int = 0  # For analysis plots (ignore transients)
 
+    # Early stopping conditions (any condition triggers stop)
+    stop_if_n_scales_reached: Optional[int] = None  # Stop when this many scales exist
+    stop_if_n_condensations: Optional[int] = None  # Stop after this many meta-agents formed
+    stop_if_min_active_agents: Optional[int] = None  # Stop if active agents drops below this
+
     # =============================================================================
     # Agents & Latent Space
     # =============================================================================
@@ -170,7 +175,9 @@ class SimulationConfig:
             sections = {
                 "Experiment": ["experiment_name", "experiment_description", "seed"],
                 "Manifold": ["spatial_shape", "manifold_topology"],
-                "Training": ["n_steps", "log_every", "skip_initial_steps"],
+                "Training": ["n_steps", "log_every", "skip_initial_steps",
+                            "stop_if_n_scales_reached", "stop_if_n_condensations",
+                            "stop_if_min_active_agents"],
                 "Agents": ["n_agents", "K_latent", "D_x", "mu_scale", "sigma_scale",
                           "phi_scale", "mean_smoothness"],
                 "Emergence": ["enable_emergence", "consensus_threshold", "consensus_check_interval",
@@ -221,6 +228,9 @@ def emergence_demo_config() -> SimulationConfig:
         lambda_belief_align=2.0,
         lambda_prior_align=2.5,
         enable_cross_scale_priors=True,
+        # Early stopping: stop once we reach 5 scales or form 15 meta-agents
+        stop_if_n_scales_reached=5,
+        stop_if_n_condensations=15,
     )
 
 
