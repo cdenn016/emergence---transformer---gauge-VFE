@@ -120,14 +120,15 @@ class ParticipatoryDiagnostics:
             step: Current training step
         """
         # Record individual tracked agents
-        for scale, agents in self.system.agents.items():
+        # Use list() to avoid RuntimeError if dict changes during iteration
+        for scale, agents in list(self.system.agents.items()):
             for agent in agents:
                 if agent.agent_id in self.track_agent_ids:
                     snapshot = self._compute_agent_energy(agent, step)
                     self.agent_history[agent.agent_id].append(snapshot)
 
         # Record per-scale aggregates
-        for scale, agents in self.system.agents.items():
+        for scale, agents in list(self.system.agents.items()):
             snapshot = self._compute_scale_energy(scale, agents, step)
             self.scale_history[scale].append(snapshot)
 
@@ -268,7 +269,8 @@ class ParticipatoryDiagnostics:
     def _track_prior_changes(self, step: int):
         """Track how much priors change between steps"""
 
-        for scale, agents in self.system.agents.items():
+        # Use list() to avoid RuntimeError if dict changes during iteration
+        for scale, agents in list(self.system.agents.items()):
             for i, agent in enumerate(agents):
                 key = (scale, i)
                 current_prior = agent.mu_p.copy()
