@@ -379,11 +379,17 @@ def _run_hierarchical_training(system, cfg, output_dir):
 
         print("  Initializing comprehensive visualization tools...")
         analyzer = MetaAgentAnalyzer(system)
+
+        # Note: compute_full_energies=True enables belief/prior alignment energy tracking
+        # This is VERY EXPENSIVE (10-100x slower) but gives detailed energy decomposition
+        # Set to False for fast performance with only self-energy tracking
         diagnostics = ParticipatoryDiagnostics(
             system=system,
-            track_agent_ids=None  # Auto-selects first 3 scale-0 agents
+            track_agent_ids=None,  # Auto-selects first 3 scale-0 agents
+            compute_full_energies=False  # Set True for detailed energy (SLOW!)
         )
         print(f"  Snapshot interval: every {cfg.snapshot_interval} steps")
+        print(f"  Full energy computation: {'ENABLED (slow)' if diagnostics.compute_full_energies else 'DISABLED (fast, self-energy only)'}")
 
     # History tracking
     history = {
