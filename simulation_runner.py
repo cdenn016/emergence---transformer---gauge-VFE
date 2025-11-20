@@ -46,13 +46,16 @@ def build_manifold(cfg: SimulationConfig) -> BaseManifold:
     """Create BaseManifold from configuration."""
     topology_map = {
         "periodic": TopologyType.PERIODIC,
-        "open": TopologyType.OPEN,
+        "flat": TopologyType.FLAT,
         "sphere": TopologyType.SPHERE,
-        "hyperbolic": TopologyType.HYPERBOLIC
     }
+    topology_key = cfg.manifold_topology.lower()
+    if topology_key not in topology_map:
+        raise ValueError(f"Unknown topology '{topology_key}'. Valid options: {list(topology_map.keys())}")
+
     return BaseManifold(
         shape=cfg.spatial_shape,
-        topology=topology_map[cfg.manifold_topology.lower()]
+        topology=topology_map[topology_key]
     )
 
 

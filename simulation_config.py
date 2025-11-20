@@ -26,7 +26,7 @@ class SimulationConfig:
     # Spatial Geometry
     # =============================================================================
     spatial_shape: Tuple = ()
-    manifold_topology: str = "periodic"  # periodic, open, sphere, hyperbolic
+    manifold_topology: str = "periodic"  # periodic, flat, sphere
 
     # =============================================================================
     # Training Loop
