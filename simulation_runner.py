@@ -445,6 +445,8 @@ def _run_hierarchical_training(system, cfg, output_dir):
             total_condensations = sum(history['n_condensations'])
             if total_condensations >= cfg.stop_if_n_condensations:
                 stop_reason = f"Reached target condensation count: {total_condensations}/{cfg.stop_if_n_condensations}"
+        elif cfg.stop_if_max_active_agents and actual_n_active >= cfg.stop_if_max_active_agents:
+            stop_reason = f"Reached maximum active agents: {actual_n_active}/{cfg.stop_if_max_active_agents}"
         elif cfg.stop_if_min_active_agents and actual_n_active < cfg.stop_if_min_active_agents:
             stop_reason = f"Active agents below minimum: {actual_n_active}/{cfg.stop_if_min_active_agents}"
 
