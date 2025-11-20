@@ -33,7 +33,9 @@ class EnergyVisualizer:
         """
         self.diagnostics = diagnostics
 
-    def plot_energy_landscape(self, figsize: Tuple[int, int] = (14, 8)) -> plt.Figure:
+    def plot_energy_landscape(self,
+                              figsize: Tuple[int, int] = (14, 8),
+                              scales_per_figure: int = 4) -> List[plt.Figure]:
         """
         Plot multi-scale energy decomposition over time.
 
@@ -43,7 +45,11 @@ class EnergyVisualizer:
         - E_prior_align (vertical alignment)
 
         Args:
-            figsize: Figure size
+            figsize: Figure size for each page
+            scales_per_figure: Maximum number of scales per figure (default: 4)
+
+        Returns:
+            List of figures (one per group of scales)
         """
         if not self.diagnostics.scale_history:
             raise ValueError("No scale history recorded. Run diagnostics during evolution.")
@@ -63,42 +69,63 @@ class EnergyVisualizer:
         if not scale_energy:
             raise ValueError("No scale data available")
 
-        # Create figure with subplots for each scale
-        n_scales = len(scale_energy)
-        fig, axes = plt.subplots(n_scales, 1, figsize=figsize, sharex=True)
-
-        if n_scales == 1:
-            axes = [axes]
-
         colors = {'self': '#FF6B6B', 'belief': '#4ECDC4', 'prior': '#45B7D1'}
 
-        for idx, (scale, energies) in enumerate(sorted(scale_energy.items())):
-            ax = axes[idx]
-            times = energies['times']
+        # Sort scales
+        sorted_scales = sorted(scale_energy.items())
+        n_total_scales = len(sorted_scales)
 
-            # Stack plot for energy components
-            ax.fill_between(times, 0, energies['self'],
-                           label='E_self', alpha=0.8, color=colors['self'])
-            ax.fill_between(times, energies['self'],
-                           np.array(energies['self']) + np.array(energies['belief']),
-                           label='E_belief_align', alpha=0.8, color=colors['belief'])
-            ax.fill_between(times,
-                           np.array(energies['self']) + np.array(energies['belief']),
-                           energies['total'],
-                           label='E_prior_align', alpha=0.8, color=colors['prior'])
+        # Break into groups of scales_per_figure
+        figures = []
+        for start_idx in range(0, n_total_scales, scales_per_figure):
+            end_idx = min(start_idx + scales_per_figure, n_total_scales)
+            scales_in_fig = sorted_scales[start_idx:end_idx]
+            n_scales = len(scales_in_fig)
 
-            # Total energy line
-            ax.plot(times, energies['total'], 'k-', linewidth=2, label='Total')
+            # Create figure for this group
+            fig, axes = plt.subplots(n_scales, 1, figsize=figsize, sharex=True)
 
-            ax.set_ylabel(f'Energy\n(ζ={scale})', fontsize=11, fontweight='bold')
-            ax.legend(loc='upper right', fontsize=9, ncol=4)
-            ax.grid(alpha=0.3, axis='y')
+            if n_scales == 1:
+                axes = [axes]
 
-        axes[-1].set_xlabel('Step', fontsize=12)
-        fig.suptitle('Multi-Scale Energy Landscape Decomposition', fontsize=16, fontweight='bold')
+            # Plot each scale in this group
+            for idx, (scale, energies) in enumerate(scales_in_fig):
+                ax = axes[idx]
+                times = energies['times']
 
-        plt.tight_layout()
-        return fig
+                # Stack plot for energy components
+                ax.fill_between(times, 0, energies['self'],
+                               label='E_self', alpha=0.8, color=colors['self'])
+                ax.fill_between(times, energies['self'],
+                               np.array(energies['self']) + np.array(energies['belief']),
+                               label='E_belief_align', alpha=0.8, color=colors['belief'])
+                ax.fill_between(times,
+                               np.array(energies['self']) + np.array(energies['belief']),
+                               energies['total'],
+                               label='E_prior_align', alpha=0.8, color=colors['prior'])
+
+                # Total energy line
+                ax.plot(times, energies['total'], 'k-', linewidth=2, label='Total')
+
+                ax.set_ylabel(f'Energy\n(ζ={scale})', fontsize=11, fontweight='bold')
+                ax.legend(loc='upper right', fontsize=9, ncol=4)
+                ax.grid(alpha=0.3, axis='y')
+
+            axes[-1].set_xlabel('Step', fontsize=12)
+
+            # Add page info if multiple figures
+            if n_total_scales > scales_per_figure:
+                page_num = (start_idx // scales_per_figure) + 1
+                total_pages = (n_total_scales + scales_per_figure - 1) // scales_per_figure
+                title = f'Energy Landscape (Scales {start_idx}-{end_idx-1}, Page {page_num}/{total_pages})'
+            else:
+                title = 'Multi-Scale Energy Landscape Decomposition'
+
+            fig.suptitle(title, fontsize=16, fontweight='bold')
+            plt.tight_layout()
+            figures.append(fig)
+
+        return figures
 
     def plot_energy_flow(self, figsize: Tuple[int, int] = (12, 6)) -> plt.Figure:
         """
@@ -476,12 +503,22 @@ class EnergyVisualizer:
         print("Generating energy visualizations...")
 
         try:
-            fig = self.plot_energy_landscape()
-            path = output_path / 'energy_landscape.png'
-            fig.savefig(path, dpi=150, bbox_inches='tight')
-            saved_files['energy_landscape'] = str(path)
-            plt.close(fig)
-            print(f"  ✓ Saved energy landscape to {path}")
+            figures = self.plot_energy_landscape()
+            if len(figures) == 1:
+                # Single figure - use simple name
+                path = output_path / 'energy_landscape.png'
+                figures[0].savefig(path, dpi=150, bbox_inches='tight')
+                saved_files['energy_landscape'] = str(path)
+                plt.close(figures[0])
+                print(f"  ✓ Saved energy landscape to {path}")
+            else:
+                # Multiple figures - save with page numbers
+                for i, fig in enumerate(figures):
+                    path = output_path / f'energy_landscape_page{i+1}.png'
+                    fig.savefig(path, dpi=150, bbox_inches='tight')
+                    saved_files[f'energy_landscape_page{i+1}'] = str(path)
+                    plt.close(fig)
+                print(f"  ✓ Saved energy landscape ({len(figures)} pages) to {output_path}/energy_landscape_page*.png")
         except Exception as e:
             print(f"  ✗ Failed to generate energy landscape: {e}")
 
