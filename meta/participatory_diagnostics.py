@@ -136,19 +136,44 @@ class ParticipatoryDiagnostics:
 
     def _compute_agent_energy(self, agent: HierarchicalAgent, step: int) -> AgentEnergySnapshot:
         """Compute energy decomposition for single agent"""
-
-        # Self-energy: KL(q||p)
-        E_self = kl_gaussian(
-            agent.mu_q, agent.L_q @ agent.L_q.T,
-            agent.mu_p, agent.L_p @ agent.L_p.T
+        from free_energy_clean import (
+            compute_self_energy,
+            compute_belief_alignment_energy,
+            compute_prior_alignment_energy
         )
 
-        # For alignment energies, we'd need neighbor information
-        # For now, use placeholders (would need system config to compute properly)
+        config = self.system.system_config
+
+        # Self-energy: KL(q||p)
+        E_self = compute_self_energy(agent, lambda_self=config.lambda_self)
+
+        # Build index mapping for active agents
+        active_agents = self.system.get_all_active_agents()
+        try:
+            agent_idx = active_agents.index(agent)
+        except ValueError:
+            # Agent not in active list (shouldn't happen, but handle gracefully)
+            agent_idx = None
+
+        # Alignment energies (only if agent is in active list)
         E_belief_align = 0.0
         E_prior_align = 0.0
-        E_obs = 0.0
-        E_total = E_self  # Simplified for now
+
+        if agent_idx is not None:
+            if config.has_belief_alignment:
+                try:
+                    E_belief_align = compute_belief_alignment_energy(self.system, agent_idx)
+                except:
+                    pass  # Gracefully handle any computation errors
+
+            if config.has_prior_alignment:
+                try:
+                    E_prior_align = compute_prior_alignment_energy(self.system, agent_idx)
+                except:
+                    pass
+
+        E_obs = 0.0  # Observation energy not tracked per agent
+        E_total = E_self + E_belief_align + E_prior_align + E_obs
 
         # Gradient norms (proxy)
         grad_mu_norm = np.linalg.norm(agent.mu_q - agent.mu_p)
@@ -173,27 +198,54 @@ class ParticipatoryDiagnostics:
     def _compute_scale_energy(self, scale: int, agents: List[HierarchicalAgent],
                              step: int) -> ScaleEnergySnapshot:
         """Compute aggregated energy for entire scale"""
+        from free_energy_clean import (
+            compute_self_energy,
+            compute_belief_alignment_energy,
+            compute_prior_alignment_energy
+        )
 
+        config = self.system.system_config
         n_agents = len(agents)
         n_active = sum(1 for a in agents if a.is_active)
 
+        # Build index mapping for active agents
+        active_agents = self.system.get_all_active_agents()
+
         # Compute energies
         total_self = 0.0
+        total_belief = 0.0
+        total_prior = 0.0
         coherences = []
 
         for agent in agents:
             if agent.is_active:
-                E_self = kl_gaussian(
-                    agent.mu_q, agent.L_q @ agent.L_q.T,
-                    agent.mu_p, agent.L_p @ agent.L_p.T
-                )
+                # Self-energy
+                E_self = compute_self_energy(agent, lambda_self=config.lambda_self)
                 total_self += E_self
+
+                # Alignment energies
+                try:
+                    agent_idx = active_agents.index(agent)
+
+                    if config.has_belief_alignment:
+                        try:
+                            total_belief += compute_belief_alignment_energy(self.system, agent_idx)
+                        except:
+                            pass
+
+                    if config.has_prior_alignment:
+                        try:
+                            total_prior += compute_prior_alignment_energy(self.system, agent_idx)
+                        except:
+                            pass
+                except ValueError:
+                    pass  # Agent not in active list
 
                 # Coherence (if meta-agent)
                 if hasattr(agent, 'meta') and agent.meta is not None:
                     coherences.append(agent.meta.belief_coherence)
 
-        total_energy = total_self  # Simplified
+        total_energy = total_self + total_belief + total_prior
         avg_energy = total_energy / max(n_active, 1)
 
         avg_coherence = np.mean(coherences) if coherences else 0.0
@@ -207,8 +259,8 @@ class ParticipatoryDiagnostics:
             total_energy=total_energy,
             avg_energy_per_agent=avg_energy,
             total_self_energy=total_self,
-            total_belief_align=0.0,
-            total_prior_align=0.0,
+            total_belief_align=total_belief,
+            total_prior_align=total_prior,
             avg_coherence=avg_coherence,
             coherence_std=coherence_std
         )
