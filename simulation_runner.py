@@ -381,9 +381,7 @@ def _run_hierarchical_training(system, cfg, output_dir):
         analyzer = MetaAgentAnalyzer(system)
         diagnostics = ParticipatoryDiagnostics(
             system=system,
-            track_energy=True,
-            track_priors=True,
-            track_gradients=False  # Can be expensive
+            track_agent_ids=None  # Auto-selects first 3 scale-0 agents
         )
         print(f"  Snapshot interval: every {cfg.snapshot_interval} steps")
 
