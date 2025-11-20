@@ -209,11 +209,26 @@ class EnergyVisualizer:
         # Create plot
         fig, ax = plt.subplots(figsize=figsize)
 
+        n_agents = len(agent_changes)
+        max_labeled = 8  # Maximum agents to show in legend
+
         # Plot each agent's prior changes
         # Sort by string representation to handle mixed str/int agent IDs
-        for agent_id, data in sorted(agent_changes.items(), key=lambda x: str(x[0])):
-            ax.plot(data['steps'], data['changes'], marker='o', alpha=0.6,
-                   label=f'{agent_id}', linewidth=1.5, markersize=4)
+        for idx, (agent_id, data) in enumerate(sorted(agent_changes.items(), key=lambda x: str(x[0]))):
+            # Only add label for first few agents if too many
+            if n_agents <= max_labeled:
+                label = f'{agent_id}'
+            elif idx < 3:  # First 3 agents
+                label = f'{agent_id}'
+            elif idx == 3:  # Indicate there are more
+                label = f'... +{n_agents - 3} more agents'
+            else:
+                label = None  # No label for others
+
+            ax.plot(data['steps'], data['changes'], marker='o' if n_agents <= max_labeled else None,
+                   alpha=0.6 if n_agents <= max_labeled else 0.3,
+                   label=label, linewidth=1.5 if n_agents <= max_labeled else 1.0,
+                   markersize=4 if n_agents <= max_labeled else 0)
 
         # Compute and plot average
         all_steps = []
@@ -230,13 +245,19 @@ class EnergyVisualizer:
                 avg_changes.append(np.mean(changes_at_step))
 
             ax.plot(unique_steps, avg_changes, 'k-', linewidth=3,
-                   label='Average', alpha=0.8)
+                   label=f'Average ({n_agents} agents)', alpha=0.8)
 
         ax.set_xlabel('Step', fontsize=12)
         ax.set_ylabel('Prior Change (L2 norm)', fontsize=12)
         ax.set_title('Prior Evolution (Top-Down Information Flow)', fontsize=14, fontweight='bold')
         ax.set_yscale('log')
-        ax.legend(loc='upper right', fontsize=9, ncol=3)
+
+        # Smart legend placement and size
+        if n_agents <= max_labeled:
+            ax.legend(loc='upper right', fontsize=9, ncol=min(3, (n_agents + 1) // 3 + 1))
+        else:
+            ax.legend(loc='upper right', fontsize=9, ncol=1)
+
         ax.grid(alpha=0.3, which='both')
 
         plt.tight_layout()
