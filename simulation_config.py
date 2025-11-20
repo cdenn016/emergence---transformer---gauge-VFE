@@ -142,6 +142,10 @@ class SimulationConfig:
     save_diagnostic_plots: bool = True
     save_diagnostic_report: bool = False
 
+    # Comprehensive meta-agent visualizations (hierarchy, consensus, energy)
+    generate_meta_visualizations: bool = True
+    snapshot_interval: int = 5  # Capture analyzer snapshots every N steps
+
     def __post_init__(self):
         """Compute derived parameters."""
         # Compute gaussian_sigma from overlap_threshold

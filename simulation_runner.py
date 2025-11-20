@@ -370,6 +370,23 @@ def _run_hierarchical_training(system, cfg, output_dir):
 
     engine = HierarchicalEvolutionEngine(system, hier_config)
 
+    # Initialize comprehensive visualization tools
+    analyzer = None
+    diagnostics = None
+    if cfg.generate_meta_visualizations:
+        from meta.visualization import MetaAgentAnalyzer
+        from meta.participatory_diagnostics import ParticipatoryDiagnostics
+
+        print("  Initializing comprehensive visualization tools...")
+        analyzer = MetaAgentAnalyzer(system)
+        diagnostics = ParticipatoryDiagnostics(
+            system=system,
+            track_energy=True,
+            track_priors=True,
+            track_gradients=False  # Can be expensive
+        )
+        print(f"  Snapshot interval: every {cfg.snapshot_interval} steps")
+
     # History tracking
     history = {
         'step': [],
@@ -399,6 +416,12 @@ def _run_hierarchical_training(system, cfg, output_dir):
         # Evolve one step
         metrics = engine.evolve_step(learning_rate=cfg.lr_mu_q, compute_gradients_fn=compute_grads)
 
+        # Capture visualization snapshots
+        if cfg.generate_meta_visualizations:
+            if step % cfg.snapshot_interval == 0 or step == cfg.n_steps - 1:
+                analyzer.capture_snapshot()
+            diagnostics.capture_snapshot()
+
         # Record metrics
         history['step'].append(step)
         history['total'].append(energies.total)
@@ -408,15 +431,27 @@ def _run_hierarchical_training(system, cfg, output_dir):
 
         # Log emergence events
         if metrics.get('n_condensations', 0) > 0:
+            event = {
+                'step': step,
+                'n_condensations': metrics['n_condensations'],
+                'n_scales': len(metrics.get('n_active', {}))
+            }
+            history['emergence_events'].append(event)
             print(f"\n🌟 EMERGENCE at step {step}! {metrics['n_condensations']} new meta-agents")
 
         if step % cfg.log_every == 0:
             print(f"Step {step:4d} | Energy: {energies.total:.4f} | "
                   f"Scales: {history['n_scales'][-1]} | Active: {history['n_active_agents'][-1]}")
 
-    # Save and visualize
+    # Save history
     _save_history(history, output_dir)
-    _plot_emergence(history, output_dir)
+
+    # Generate visualizations
+    if cfg.generate_meta_visualizations and analyzer and diagnostics:
+        _generate_comprehensive_visualizations(system, analyzer, diagnostics, output_dir)
+    else:
+        # Minimal visualization
+        _plot_emergence(history, output_dir)
 
     return history
 
@@ -481,6 +516,94 @@ def _plot_emergence(history, output_dir):
     plt.savefig(fig_path, dpi=150)
     plt.close()
     print(f"✓ Saved {fig_path}")
+
+
+def _generate_comprehensive_visualizations(system, analyzer, diagnostics, output_dir):
+    """
+    Generate comprehensive meta-agent visualizations.
+
+    Uses the new visualization toolkit to create:
+    - Hierarchy graphs (static and interactive)
+    - Consensus matrices
+    - Scale occupancy heatmaps
+    - Energy landscapes
+    - Coherence trajectories
+    - And more!
+    """
+    from meta.visualization import (
+        HierarchyVisualizer,
+        ConsensusVisualizer,
+        DynamicsVisualizer,
+        create_analysis_report
+    )
+    from meta.energy_visualization import EnergyVisualizer
+
+    print(f"\n{'='*70}")
+    print("GENERATING COMPREHENSIVE VISUALIZATIONS")
+    print(f"{'='*70}")
+
+    # Create output directories
+    meta_dir = output_dir / "meta_analysis"
+    energy_dir = output_dir / "energy_analysis"
+    meta_dir.mkdir(exist_ok=True, parents=True)
+    energy_dir.mkdir(exist_ok=True, parents=True)
+
+    # Generate structure and dynamics visualizations
+    print("\n1. Meta-Agent Structure and Dynamics...")
+    try:
+        create_analysis_report(analyzer, str(meta_dir))
+    except Exception as e:
+        print(f"  ⚠️  Error generating meta-agent analysis: {e}")
+
+    # Generate energy visualizations
+    print("\n2. Energy Landscapes and Thermodynamics...")
+    try:
+        energy_viz = EnergyVisualizer(diagnostics)
+        energy_viz.create_energy_report(str(energy_dir))
+    except Exception as e:
+        print(f"  ⚠️  Error generating energy analysis: {e}")
+
+    # Generate interactive hierarchy (if possible)
+    print("\n3. Interactive Visualizations...")
+    try:
+        hierarchy_viz = HierarchyVisualizer(analyzer)
+        interactive_fig = hierarchy_viz.plot_interactive_hierarchy()
+        if interactive_fig:
+            interactive_path = output_dir / "interactive_hierarchy.html"
+            interactive_fig.write_html(str(interactive_path))
+            print(f"  ✓ Saved interactive hierarchy to {interactive_path}")
+    except Exception as e:
+        print(f"  ⚠️  Plotly not available or error: {e}")
+
+    # Export data for external analysis
+    print("\n4. Exporting Raw Data...")
+    try:
+        data_path = output_dir / "snapshots.json"
+        analyzer.export_to_json(str(data_path))
+        print(f"  ✓ Saved raw data to {data_path}")
+    except Exception as e:
+        print(f"  ⚠️  Error exporting data: {e}")
+
+    # Print summary
+    print(f"\n{'='*70}")
+    print("VISUALIZATION COMPLETE")
+    print(f"{'='*70}")
+    print(f"Meta-agent analysis: {meta_dir}/")
+    print(f"Energy analysis:     {energy_dir}/")
+    print(f"Interactive plots:   {output_dir}/interactive_*.html")
+    print(f"Raw data:            {output_dir}/snapshots.json")
+    print(f"{'='*70}\n")
+
+    # Print analysis summary
+    if analyzer.snapshots:
+        final_snapshot = analyzer.snapshots[-1]
+        print("Final System State:")
+        print(f"  Total agents:    {final_snapshot.metrics['total_agents']}")
+        print(f"  Active agents:   {final_snapshot.metrics['total_active']}")
+        print(f"  Max scale:       {final_snapshot.metrics['max_scale']}")
+        print(f"  Meta-agents:     {len(final_snapshot.meta_agents)}")
+        print(f"  Condensations:   {len(system.condensation_events)}")
+        print()
 
 
 # =============================================================================
