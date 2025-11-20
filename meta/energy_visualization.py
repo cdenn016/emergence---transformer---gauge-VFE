@@ -183,7 +183,8 @@ class EnergyVisualizer:
         fig, ax = plt.subplots(figsize=figsize)
 
         # Plot each agent's prior changes
-        for agent_id, data in sorted(agent_changes.items()):
+        # Sort by string representation to handle mixed str/int agent IDs
+        for agent_id, data in sorted(agent_changes.items(), key=lambda x: str(x[0])):
             ax.plot(data['steps'], data['changes'], marker='o', alpha=0.6,
                    label=f'{agent_id}', linewidth=1.5, markersize=4)
 
