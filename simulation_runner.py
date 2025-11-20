@@ -420,11 +420,15 @@ def _run_hierarchical_training(system, cfg, output_dir):
                 analyzer.capture_snapshot()
             diagnostics.record_snapshot(step)
 
-        # Record metrics
+        # Record metrics - use ACTUAL system state, not potentially stale metrics
+        actual_n_scales = len(system.agents)  # Number of scales = number of keys in agents dict
+        actual_n_active = sum(sum(1 for a in agents if a.is_active)
+                             for agents in system.agents.values())
+
         history['step'].append(step)
         history['total'].append(energies.total)
-        history['n_scales'].append(len(metrics.get('n_active', {})))
-        history['n_active_agents'].append(sum(metrics.get('n_active', {}).values()))
+        history['n_scales'].append(actual_n_scales)
+        history['n_active_agents'].append(actual_n_active)
         history['n_condensations'].append(metrics.get('n_condensations', 0))
 
         # Log emergence events

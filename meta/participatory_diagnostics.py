@@ -82,15 +82,19 @@ class ParticipatoryDiagnostics:
 
     def __init__(self,
                  system: MultiScaleSystem,
-                 track_agent_ids: Optional[List[str]] = None):
+                 track_agent_ids: Optional[List[str]] = None,
+                 compute_full_energies: bool = False):
         """
         Initialize diagnostics
 
         Args:
             system: MultiScaleSystem to monitor
             track_agent_ids: Specific agent IDs to track in detail (default: first 3 at scale-0)
+            compute_full_energies: If True, compute belief/prior alignment energies (EXPENSIVE!)
+                                   If False, only compute self-energy (fast, recommended)
         """
         self.system = system
+        self.compute_full_energies = compute_full_energies
 
         # If not specified, track first 3 scale-0 agents
         if track_agent_ids is None:
@@ -137,41 +141,42 @@ class ParticipatoryDiagnostics:
 
     def _compute_agent_energy(self, agent: HierarchicalAgent, step: int) -> AgentEnergySnapshot:
         """Compute energy decomposition for single agent"""
-        from free_energy_clean import (
-            compute_self_energy,
-            compute_belief_alignment_energy,
-            compute_prior_alignment_energy
-        )
+        from free_energy_clean import compute_self_energy
 
         config = self.system.system_config
 
-        # Self-energy: KL(q||p)
+        # Self-energy: KL(q||p) - always computed (fast)
         E_self = compute_self_energy(agent, lambda_self=config.lambda_self)
 
-        # Build index mapping for active agents
-        active_agents = self.system.get_all_active_agents()
-        try:
-            agent_idx = active_agents.index(agent)
-        except ValueError:
-            # Agent not in active list (shouldn't happen, but handle gracefully)
-            agent_idx = None
-
-        # Alignment energies (only if agent is in active list)
+        # Alignment energies - only if requested (EXPENSIVE!)
         E_belief_align = 0.0
         E_prior_align = 0.0
 
-        if agent_idx is not None:
-            if config.has_belief_alignment:
-                try:
-                    E_belief_align = compute_belief_alignment_energy(self.system, agent_idx)
-                except:
-                    pass  # Gracefully handle any computation errors
+        if self.compute_full_energies:
+            from free_energy_clean import (
+                compute_belief_alignment_energy,
+                compute_prior_alignment_energy
+            )
 
-            if config.has_prior_alignment:
-                try:
-                    E_prior_align = compute_prior_alignment_energy(self.system, agent_idx)
-                except:
-                    pass
+            # Build index mapping for active agents
+            active_agents = self.system.get_all_active_agents()
+            try:
+                agent_idx = active_agents.index(agent)
+            except ValueError:
+                agent_idx = None
+
+            if agent_idx is not None:
+                if config.has_belief_alignment:
+                    try:
+                        E_belief_align = compute_belief_alignment_energy(self.system, agent_idx)
+                    except:
+                        pass
+
+                if config.has_prior_alignment:
+                    try:
+                        E_prior_align = compute_prior_alignment_energy(self.system, agent_idx)
+                    except:
+                        pass
 
         E_obs = 0.0  # Observation energy not tracked per agent
         E_total = E_self + E_belief_align + E_prior_align + E_obs
@@ -199,18 +204,11 @@ class ParticipatoryDiagnostics:
     def _compute_scale_energy(self, scale: int, agents: List[HierarchicalAgent],
                              step: int) -> ScaleEnergySnapshot:
         """Compute aggregated energy for entire scale"""
-        from free_energy_clean import (
-            compute_self_energy,
-            compute_belief_alignment_energy,
-            compute_prior_alignment_energy
-        )
+        from free_energy_clean import compute_self_energy
 
         config = self.system.system_config
         n_agents = len(agents)
         n_active = sum(1 for a in agents if a.is_active)
-
-        # Build index mapping for active agents
-        active_agents = self.system.get_all_active_agents()
 
         # Compute energies
         total_self = 0.0
@@ -220,27 +218,34 @@ class ParticipatoryDiagnostics:
 
         for agent in agents:
             if agent.is_active:
-                # Self-energy
+                # Self-energy - always computed (fast)
                 E_self = compute_self_energy(agent, lambda_self=config.lambda_self)
                 total_self += E_self
 
-                # Alignment energies
-                try:
-                    agent_idx = active_agents.index(agent)
+                # Alignment energies - only if requested (EXPENSIVE!)
+                if self.compute_full_energies:
+                    from free_energy_clean import (
+                        compute_belief_alignment_energy,
+                        compute_prior_alignment_energy
+                    )
 
-                    if config.has_belief_alignment:
-                        try:
-                            total_belief += compute_belief_alignment_energy(self.system, agent_idx)
-                        except:
-                            pass
+                    active_agents = self.system.get_all_active_agents()
+                    try:
+                        agent_idx = active_agents.index(agent)
 
-                    if config.has_prior_alignment:
-                        try:
-                            total_prior += compute_prior_alignment_energy(self.system, agent_idx)
-                        except:
-                            pass
-                except ValueError:
-                    pass  # Agent not in active list
+                        if config.has_belief_alignment:
+                            try:
+                                total_belief += compute_belief_alignment_energy(self.system, agent_idx)
+                            except:
+                                pass
+
+                        if config.has_prior_alignment:
+                            try:
+                                total_prior += compute_prior_alignment_energy(self.system, agent_idx)
+                            except:
+                                pass
+                    except ValueError:
+                        pass  # Agent not in active list
 
                 # Coherence (if meta-agent)
                 if hasattr(agent, 'meta') and agent.meta is not None:
