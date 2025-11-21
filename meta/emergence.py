@@ -1341,16 +1341,37 @@ class MultiScaleSystem:
                 agent_j = agents_at_scale[j]
 
                 # Compute transport
+                phi_i = agent_i.gauge.phi
+                phi_j = agent_j.gauge.phi
+
+                # Ensure phi has correct shape for spatial: (*spatial, 3)
+                # For point manifolds: (3,) -> (1, 3)
+                if phi_i.ndim == 1:
+                    phi_i = phi_i[None, :]  # (3,) -> (1, 3)
+                if phi_j.ndim == 1:
+                    phi_j = phi_j[None, :]  # (3,) -> (1, 3)
+
                 omega_ij = compute_transport(
-                    agent_i.gauge.phi,
-                    agent_j.gauge.phi,
+                    phi_i,
+                    phi_j,
                     agent_i.generators,
                     validate=False
                 )
 
+                # For point manifolds: omega_ij is (1, K, K), squeeze to (K, K)
+                if omega_ij.shape[0] == 1 and agent_j.mu_q.ndim == 1:
+                    omega_ij = omega_ij[0]  # (1, K, K) -> (K, K)
+
                 # Check BELIEF consensus
-                mu_q_j_t = omega_ij @ agent_j.mu_q
-                Sigma_q_j_t = omega_ij @ agent_j.Sigma_q @ omega_ij.T
+                # For spatial: use einsum for proper broadcasting
+                # omega_ij: (*spatial, K, K), mu_q: (*spatial, K) -> (*spatial, K)
+                if omega_ij.ndim > 2:
+                    mu_q_j_t = np.einsum('...ij,...j->...i', omega_ij, agent_j.mu_q)
+                    Sigma_q_j_t = np.einsum('...ik,...kl,...jl->...ij', omega_ij, agent_j.Sigma_q, omega_ij)
+                else:
+                    # Point manifold case
+                    mu_q_j_t = omega_ij @ agent_j.mu_q
+                    Sigma_q_j_t = omega_ij @ agent_j.Sigma_q @ omega_ij.T
 
                 try:
                     kl_belief = kl_gaussian(agent_i.mu_q, agent_i.Sigma_q, mu_q_j_t, Sigma_q_j_t)
@@ -1364,8 +1385,14 @@ class MultiScaleSystem:
                     print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok}")
                 else:
                     # Check MODEL consensus
-                    mu_p_j_t = omega_ij @ agent_j.mu_p
-                    Sigma_p_j_t = omega_ij @ agent_j.Sigma_p @ omega_ij.T
+                    # For spatial: use einsum for proper broadcasting
+                    if omega_ij.ndim > 2:
+                        mu_p_j_t = np.einsum('...ij,...j->...i', omega_ij, agent_j.mu_p)
+                        Sigma_p_j_t = np.einsum('...ik,...kl,...jl->...ij', omega_ij, agent_j.Sigma_p, omega_ij)
+                    else:
+                        # Point manifold case
+                        mu_p_j_t = omega_ij @ agent_j.mu_p
+                        Sigma_p_j_t = omega_ij @ agent_j.Sigma_p @ omega_ij.T
 
                     try:
                         kl_model = kl_gaussian(agent_i.mu_p, agent_i.Sigma_p, mu_p_j_t, Sigma_p_j_t)
