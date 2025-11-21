@@ -384,6 +384,10 @@ class HierarchicalAgent(Agent):
                 try:
                     kl = kl_gaussian(mu_transported, Sigma_transported,
                                    mu_other, Sigma_other)
+                    # For spatial manifolds: kl is (*spatial,) array
+                    # Aggregate to scalar for coherence score
+                    if np.ndim(kl) > 0:
+                        kl = float(np.mean(kl))  # Average KL over spatial points
                 except np.linalg.LinAlgError:
                     # If still fails, skip this comparison
                     kl = 10.0  # Large default KL (low coherence)
