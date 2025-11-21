@@ -723,27 +723,98 @@ def frechet_mean_gaussian(
 
     convergence_history = []
 
-    # TODO: Implement iterative Fréchet mean on Fisher manifold
-    # For now, use simple weighted average (Euclidean approximation)
-    # This is valid for nearby distributions
+    # Use iterative natural gradient descent on Fisher manifold
+    if use_natural_gradient and n > 1:
+        from math_utils.numerical_utils import sanitize_sigma
+        import scipy.linalg
 
-    # Weighted average of means
-    mu_mean = np.sum([w * mu for w, (mu, _) in zip(weights, gaussians)], axis=0)
+        # Initialize with weighted Euclidean average (good starting point)
+        mu_mean = np.sum([w * mu for w, (mu, _) in zip(weights, gaussians)], axis=0)
+        Sigma_mean = np.sum([w * Sigma for w, (_, Sigma) in zip(weights, gaussians)], axis=0)
+        Sigma_mean = sanitize_sigma(Sigma_mean)
 
-    # Weighted average of covariances (Euclidean, not Fisher-optimal)
-    Sigma_mean = np.sum([w * Sigma for w, (_, Sigma) in zip(weights, gaussians)], axis=0)
+        K = len(mu_mean)
 
-    # Ensure symmetry and positive-definiteness
-    from math_utils.numerical_utils import sanitize_sigma
-    Sigma_mean = sanitize_sigma(Sigma_mean)
+        # Natural gradient descent on Fisher manifold
+        converged = False
+        for iteration in range(max_iter):
+            # Compute Fisher metric at current point
+            try:
+                Sigma_inv = np.linalg.inv(Sigma_mean)
+            except np.linalg.LinAlgError:
+                # Singular - fall back to Euclidean
+                break
 
-    info = {
-        'n_iter': 0,
-        'converged': True,
-        'residual': 0.0,
-        'history': [],
-        'method': 'euclidean_approximation'
-    }
+            # Compute natural gradient direction (sum of tangent vectors)
+            # For mean: grad_μ = Σᵢ wᵢ Σ̄⁻¹(μᵢ - μ̄)
+            grad_mu = np.zeros_like(mu_mean)
+            for w, (mu_i, _) in zip(weights, gaussians):
+                delta_mu = mu_i - mu_mean
+                grad_mu += w * (Sigma_inv @ delta_mu)
+
+            # For covariance: use tangent vectors in space of symmetric matrices
+            # grad_Σ = Σᵢ wᵢ Σ̄⁻¹ (Σᵢ - Σ̄) Σ̄⁻¹
+            grad_Sigma = np.zeros_like(Sigma_mean)
+            for w, (_, Sigma_i) in zip(weights, gaussians):
+                delta_Sigma = Sigma_i - Sigma_mean
+                grad_Sigma += w * (Sigma_inv @ delta_Sigma @ Sigma_inv)
+
+            # Compute residual (gradient norm)
+            residual_mu = np.linalg.norm(grad_mu)
+            residual_Sigma = np.linalg.norm(grad_Sigma, 'fro')
+            residual = max(residual_mu, residual_Sigma)
+
+            convergence_history.append(residual)
+
+            # Check convergence
+            if residual < tol:
+                converged = True
+                break
+
+            # Adaptive step size (start large, reduce if needed)
+            step_mu = 0.5
+            step_Sigma = 0.1
+
+            # Update along natural gradient direction
+            # For mean: simple Euclidean update (already in natural coords)
+            mu_mean = mu_mean + step_mu * grad_mu
+
+            # For covariance: ensure positive-definiteness
+            # Use exponential map approximation: Σ̄_new ≈ Σ̄ + α grad_Σ
+            Sigma_mean_new = Sigma_mean + step_Sigma * grad_Sigma
+
+            # Ensure symmetry and positive-definiteness
+            Sigma_mean = sanitize_sigma(Sigma_mean_new)
+
+        info = {
+            'n_iter': iteration + 1 if not converged else iteration,
+            'converged': converged,
+            'residual': residual if len(convergence_history) > 0 else 0.0,
+            'history': convergence_history,
+            'method': 'natural_gradient_fisher'
+        }
+
+    else:
+        # Fall back to simple weighted average (Euclidean approximation)
+        # This is valid for nearby distributions
+        from math_utils.numerical_utils import sanitize_sigma
+
+        # Weighted average of means
+        mu_mean = np.sum([w * mu for w, (mu, _) in zip(weights, gaussians)], axis=0)
+
+        # Weighted average of covariances (Euclidean, not Fisher-optimal)
+        Sigma_mean = np.sum([w * Sigma for w, (_, Sigma) in zip(weights, gaussians)], axis=0)
+
+        # Ensure symmetry and positive-definiteness
+        Sigma_mean = sanitize_sigma(Sigma_mean)
+
+        info = {
+            'n_iter': 0,
+            'converged': True,
+            'residual': 0.0,
+            'history': [],
+            'method': 'euclidean_approximation'
+        }
 
     return (mu_mean, Sigma_mean), info
 

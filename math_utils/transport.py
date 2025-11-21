@@ -225,7 +225,12 @@ def _matrix_exponential_so3(
     # Angles larger than 2π are redundant anyway
     phi_norm = np.linalg.norm(phi, axis=-1, keepdims=True)
     phi_norm_clipped = np.clip(phi_norm, 0, 2 * np.pi)
-    phi = phi * np.where(phi_norm > 1e-8, phi_norm_clipped / phi_norm, 1.0)
+
+    # Avoid division by zero: only divide where phi_norm is sufficiently large
+    # Use np.divide with where parameter to avoid evaluating division for small norms
+    scale_factor = np.ones_like(phi_norm)
+    np.divide(phi_norm_clipped, phi_norm, out=scale_factor, where=phi_norm > 1e-8)
+    phi = phi * scale_factor
 
     batch_shape = phi.shape[:-1]
     K = G.shape[1]
