@@ -180,13 +180,31 @@ class HierarchicalAgent(Agent):
             validate=False
         )
 
-        # Set prior = transported parent belief
-        self.mu_p = omega @ self.parent_meta.mu_q
-        self.Sigma_p = omega @ self.parent_meta.Sigma_q @ omega.T
+        # Set prior = transported parent belief (handle spatial manifolds)
+        if omega.ndim > 2:
+            # Spatial manifold: use einsum
+            self.mu_p = np.einsum('...ij,...j->...i', omega, self.parent_meta.mu_q)
+            self.Sigma_p = np.einsum('...ik,...kl,...jl->...ij', omega, self.parent_meta.Sigma_q, omega)
+        else:
+            # Point manifold
+            self.mu_p = omega @ self.parent_meta.mu_q
+            self.Sigma_p = omega @ self.parent_meta.Sigma_q @ omega.T
 
         # Regularize to ensure SPD after transport
-        self.Sigma_p = 0.5 * (self.Sigma_p + self.Sigma_p.T)  # Symmetrize
-        self.Sigma_p += 1e-6 * np.eye(self.K)  # Regularize
+        # For spatial manifolds: transpose only last two axes
+        if self.Sigma_p.ndim > 2:
+            Sigma_p_T = np.swapaxes(self.Sigma_p, -1, -2)
+        else:
+            Sigma_p_T = self.Sigma_p.T
+
+        self.Sigma_p = 0.5 * (self.Sigma_p + Sigma_p_T)  # Symmetrize
+
+        # Regularize (broadcast identity for spatial manifolds)
+        if self.Sigma_p.ndim > 2:
+            I = np.eye(self.K)
+            self.Sigma_p = self.Sigma_p + 1e-6 * I
+        else:
+            self.Sigma_p += 1e-6 * np.eye(self.K)
 
         # Ouroboros Tower: Collect hyperpriors from ancestors (ζ+2, ζ+3, ...)
         if enable_tower and max_depth > 1:
@@ -223,8 +241,20 @@ class HierarchicalAgent(Agent):
                     Sigma_h = omega_ancestor @ current_ancestor.Sigma_q @ omega_ancestor.T
 
                 # Regularize
-                Sigma_h = 0.5 * (Sigma_h + Sigma_h.T)
-                Sigma_h += 1e-6 * np.eye(self.K)
+                # For spatial manifolds: transpose only last two axes
+                if Sigma_h.ndim > 2:
+                    Sigma_h_T = np.swapaxes(Sigma_h, -1, -2)
+                else:
+                    Sigma_h_T = Sigma_h.T
+
+                Sigma_h = 0.5 * (Sigma_h + Sigma_h_T)
+
+                # Regularize (broadcast identity for spatial manifolds)
+                if Sigma_h.ndim > 2:
+                    I = np.eye(self.K)
+                    Sigma_h = Sigma_h + 1e-6 * I
+                else:
+                    Sigma_h += 1e-6 * np.eye(self.K)
 
                 self.hyperprior_mus.append(mu_h)
                 self.hyperprior_Sigmas.append(Sigma_h)
@@ -284,8 +314,22 @@ class HierarchicalAgent(Agent):
                 Sigma_transported = omega @ agent.Sigma_q @ omega.T
 
             # Regularize to ensure SPD after transport
-            Sigma_transported = 0.5 * (Sigma_transported + Sigma_transported.T)  # Symmetrize
-            Sigma_transported += 1e-6 * np.eye(self.K)  # Regularize
+            # For spatial manifolds: transpose only last two axes, not all
+            if Sigma_transported.ndim > 2:
+                Sigma_T = np.swapaxes(Sigma_transported, -1, -2)
+            else:
+                Sigma_T = Sigma_transported.T
+
+            Sigma_transported = 0.5 * (Sigma_transported + Sigma_T)  # Symmetrize
+
+            # Regularize (broadcast identity for spatial manifolds)
+            if Sigma_transported.ndim > 2:
+                # Spatial: add identity at each point
+                I = np.eye(self.K)
+                Sigma_transported = Sigma_transported + 1e-6 * I
+            else:
+                # Point manifold
+                Sigma_transported += 1e-6 * np.eye(self.K)
 
             transported_beliefs.append((mu_transported, Sigma_transported))
 
@@ -315,8 +359,20 @@ class HierarchicalAgent(Agent):
                     Sigma_other = omega_other @ other_agent.Sigma_q @ omega_other.T
 
                 # Regularize to ensure SPD after transport
-                Sigma_other = 0.5 * (Sigma_other + Sigma_other.T)  # Symmetrize
-                Sigma_other += 1e-6 * np.eye(self.K)  # Regularize
+                # For spatial manifolds: transpose only last two axes
+                if Sigma_other.ndim > 2:
+                    Sigma_other_T = np.swapaxes(Sigma_other, -1, -2)
+                else:
+                    Sigma_other_T = Sigma_other.T
+
+                Sigma_other = 0.5 * (Sigma_other + Sigma_other_T)  # Symmetrize
+
+                # Regularize (broadcast identity for spatial manifolds)
+                if Sigma_other.ndim > 2:
+                    I = np.eye(self.K)
+                    Sigma_other = Sigma_other + 1e-6 * I
+                else:
+                    Sigma_other += 1e-6 * np.eye(self.K)
 
                 from math_utils.numerical_utils import kl_gaussian
                 try:
@@ -347,8 +403,20 @@ class HierarchicalAgent(Agent):
             Sigma_p_new += w * Sigma
 
         # Regularize to ensure SPD
-        Sigma_p_new = 0.5 * (Sigma_p_new + Sigma_p_new.T)  # Symmetrize
-        Sigma_p_new += 1e-6 * np.eye(self.K)  # Regularize
+        # For spatial manifolds: transpose only last two axes
+        if Sigma_p_new.ndim > 2:
+            Sigma_p_new_T = np.swapaxes(Sigma_p_new, -1, -2)
+        else:
+            Sigma_p_new_T = Sigma_p_new.T
+
+        Sigma_p_new = 0.5 * (Sigma_p_new + Sigma_p_new_T)  # Symmetrize
+
+        # Regularize (broadcast identity for spatial manifolds)
+        if Sigma_p_new.ndim > 2:
+            I = np.eye(self.K)
+            Sigma_p_new = Sigma_p_new + 1e-6 * I
+        else:
+            Sigma_p_new += 1e-6 * np.eye(self.K)
 
         # Set once at the end (triggers Cholesky decomposition once)
         self.mu_p = mu_p_new
