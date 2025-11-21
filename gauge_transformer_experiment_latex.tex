@@ -150,16 +150,16 @@ where $\beta_{ts} = \text{softmax}_s(\langle q_t, q_s \rangle / \sqrt{K})$ are a
 The FFN implements a single step of natural gradient descent on the token-wise free energy:
 %
 \begin{equation}
-F_t = \alpha \, \text{KL}(q_t \| p_t) + \beta \sum_{s \in \mathcal{N}(t)} w_{ts} \, \text{KL}(q_t \| \Omega_{ts}[q_s])
+F_t = \alpha \, \text{KL}(q_t \| p_t) + \beta \sum_{s \in \mathcal{N}(t)} \beta_{ts} \, \text{KL}(q_t \| \Omega_{ts}[q_s])
 \end{equation}
 %
-where $p_t$ is the prior (from the previous layer), $\mathcal{N}(t)$ is the local context window, and $w_{ts}$ are learned coupling weights. The belief update follows:
+where $p_t$ is the prior (from the previous layer), $\mathcal{N}(t)$ is the local context window, and $\beta_{ts}$ are the attention weights computed in the attention layer. Critically, the FFN reuses the attention weights to determine coupling strength, creating coherent information flow across the attention and feed-forward stages. The belief update follows:
 %
 \begin{equation}
 q_t \leftarrow q_t - \eta \, \nabla_{q_t} F_t
 \end{equation}
 %
-where $\eta$ is the learnable step size. This implements variational inference as a learned optimization process.
+where $\eta$ is the learnable step size. This implements variational inference as a learned optimization process, with the attention mechanism selecting which context tokens influence each target token's belief refinement.
 
 \subsection{Training Procedure}
 
