@@ -436,7 +436,10 @@ class MultiScaleSystem:
     def __init__(self, base_manifold: BaseManifold,
                  max_emergence_levels: Optional[int] = None,
                  max_meta_membership: Optional[int] = None,
-                 max_total_agents: Optional[int] = None):
+                 max_total_agents: Optional[int] = None,
+                 use_pointwise_emergence: bool = True,
+                 min_consensus_volume: float = 0.3,
+                 min_consensus_region_size: int = 4):
         self.base_manifold = base_manifold
 
         # agents[scale] = list of agents at that scale
@@ -460,6 +463,19 @@ class MultiScaleSystem:
         # None = unlimited, otherwise max total agents in system
         # e.g., max_total_agents=1000 prevents system from exceeding 1000 agents total
         self.max_total_agents = max_total_agents
+
+        # Pointwise emergence for spatial manifolds
+        # If True: meta-agents form in connected regions where consensus holds locally
+        # If False: require global consensus across entire manifold (stricter)
+        self.use_pointwise_emergence = use_pointwise_emergence
+
+        # Minimum consensus volume: meta-agent forms if consensus region covers
+        # at least this fraction of the total manifold (e.g., 0.3 = 30%)
+        self.min_consensus_volume = min_consensus_volume
+
+        # Minimum connected region size: each consensus region must contain at least
+        # this many spatial points to form a meta-agent (prevents tiny isolated regions)
+        self.min_consensus_region_size = min_consensus_region_size
     
     def add_base_agent(self, agent_config: AgentConfig, agent_id: str = None) -> HierarchicalAgent:
         """
@@ -948,10 +964,30 @@ class MultiScaleSystem:
             K = ref_phi.shape[-1]
             phi_avg = np.zeros(ref_phi.shape)
 
+            # Debug: Check all phis have correct shape
+            for i, phi in enumerate(phis):
+                if phi.shape != ref_phi.shape:
+                    raise ValueError(
+                        f"Gauge frame shape mismatch in meta-agent formation:\n"
+                        f"  Reference (agent 0): {ref_phi.shape}\n"
+                        f"  Agent {i}: {phi.shape}\n"
+                        f"  Expected: {ref_phi.shape} = (*spatial_shape={spatial_shape}, K={K}, K={K})\n"
+                        f"  All constituents must have same spatial shape and gauge group!"
+                    )
+
             # Loop over all spatial points
             for idx in np.ndindex(spatial_shape):
                 # Extract (K, K) matrices at this spatial point from all agents
                 phis_at_point = [phi[idx] for phi in phis]
+
+                # Verify extraction worked correctly
+                for i, phi_at_pt in enumerate(phis_at_point):
+                    if phi_at_pt.shape != (K, K):
+                        raise ValueError(
+                            f"Gauge frame extraction failed at spatial index {idx}:\n"
+                            f"  Agent {i}: got shape {phi_at_pt.shape}, expected ({K}, {K})\n"
+                            f"  Full phi shape: {phis[i].shape}"
+                        )
 
                 # Compute weights at this spatial point: w_i(x) = χ_i(x) · C̄_i
                 weights_at_point = np.array([

@@ -144,7 +144,59 @@ class ConsensusDetector:
             consensus = kl_div < self.belief_threshold
 
         return consensus, kl_div_scalar
-    
+
+    def check_belief_consensus_spatial(self,
+                                       agent_i, agent_j,
+                                       omega_ij: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Check belief consensus **pointwise** on spatial manifolds.
+
+        Returns spatial maps showing where agents agree locally.
+
+        Args:
+            agent_i, agent_j: Agent objects with mu_q, Sigma_q, gauge fields
+            omega_ij: Pre-computed transport operator (optional)
+
+        Returns:
+            (consensus_mask, kl_map):
+                consensus_mask: (*spatial,) boolean array, True where KL < threshold
+                kl_map: (*spatial,) float array, KL divergence at each point
+        """
+        # Get or compute transport operator
+        if omega_ij is None:
+            omega_ij = self._get_transport(agent_i, agent_j)
+
+        # Transport agent_j's belief to agent_i's frame
+        if omega_ij.ndim > 2:
+            mu_j_transported = np.einsum('...ij,...j->...i', omega_ij, agent_j.mu_q)
+            Sigma_j_transported = np.einsum('...ik,...kl,...jl->...ij', omega_ij, agent_j.Sigma_q, omega_ij)
+        else:
+            # Point manifold - no spatial structure
+            mu_j_transported = omega_ij @ agent_j.mu_q
+            Sigma_j_transported = omega_ij @ agent_j.Sigma_q @ omega_ij.T
+
+        # Sanitize
+        from math_utils.numerical_utils import sanitize_sigma
+        Sigma_j_transported = sanitize_sigma(Sigma_j_transported, eps=1e-6)
+
+        # Compute KL divergence (may be spatial array)
+        kl_div = kl_gaussian(
+            agent_i.mu_q, agent_i.Sigma_q,
+            mu_j_transported, Sigma_j_transported
+        )
+
+        if self.use_symmetric_kl:
+            kl_div_reverse = kl_gaussian(
+                mu_j_transported, Sigma_j_transported,
+                agent_i.mu_q, agent_i.Sigma_q
+            )
+            kl_div = (kl_div + kl_div_reverse) / 2
+
+        # Compute consensus mask pointwise
+        consensus_mask = kl_div < self.belief_threshold
+
+        return consensus_mask, kl_div
+
     def check_model_consensus(self,
                              agent_i, agent_j,
                              omega_ij: Optional[np.ndarray] = None) -> Tuple[bool, float]:
@@ -200,7 +252,56 @@ class ConsensusDetector:
             consensus = kl_div < self.model_threshold
 
         return consensus, kl_div_scalar
-    
+
+    def check_model_consensus_spatial(self,
+                                      agent_i, agent_j,
+                                      omega_ij: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Check model consensus **pointwise** on spatial manifolds.
+
+        Args:
+            agent_i, agent_j: Agent objects with mu_p, Sigma_p, gauge fields
+            omega_ij: Pre-computed transport operator (optional)
+
+        Returns:
+            (consensus_mask, kl_map):
+                consensus_mask: (*spatial,) boolean array
+                kl_map: (*spatial,) float array
+        """
+        # Get or compute transport operator
+        if omega_ij is None:
+            omega_ij = self._get_transport(agent_i, agent_j)
+
+        # Transport agent_j's model to agent_i's frame
+        if omega_ij.ndim > 2:
+            mu_j_transported = np.einsum('...ij,...j->...i', omega_ij, agent_j.mu_p)
+            Sigma_j_transported = np.einsum('...ik,...kl,...jl->...ij', omega_ij, agent_j.Sigma_p, omega_ij)
+        else:
+            mu_j_transported = omega_ij @ agent_j.mu_p
+            Sigma_j_transported = omega_ij @ agent_j.Sigma_p @ omega_ij.T
+
+        # Sanitize
+        from math_utils.numerical_utils import sanitize_sigma
+        Sigma_j_transported = sanitize_sigma(Sigma_j_transported, eps=1e-6)
+
+        # Compute KL divergence
+        kl_div = kl_gaussian(
+            agent_i.mu_p, agent_i.Sigma_p,
+            mu_j_transported, Sigma_j_transported
+        )
+
+        if self.use_symmetric_kl:
+            kl_div_reverse = kl_gaussian(
+                mu_j_transported, Sigma_j_transported,
+                agent_i.mu_p, agent_i.Sigma_p
+            )
+            kl_div = (kl_div + kl_div_reverse) / 2
+
+        # Compute consensus mask pointwise
+        consensus_mask = kl_div < self.model_threshold
+
+        return consensus_mask, kl_div
+
     def check_full_consensus(self,
                             agent_i, agent_j) -> ConsensusState:
         """
