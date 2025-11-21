@@ -958,10 +958,10 @@ class MultiScaleSystem:
             # Compute average
             phi_avg = average_gauge_frames_so3(phis, weights=weights, method=method)
         else:
-            # Spatial manifold: phi is (*spatial, K, K)
-            # Compute Fréchet mean pointwise with spatially-varying weights
-            spatial_shape = ref_phi.shape[:-2]
-            K = ref_phi.shape[-1]
+            # Spatial manifold: phi is (*spatial, 3) in axis-angle representation
+            # NOT (*spatial, K, K) matrices! Matrices are computed on-the-fly via exp(phi)
+            spatial_shape = ref_phi.shape[:-1]  # Extract spatial dimensions
+            axis_angle_dim = ref_phi.shape[-1]  # Should be 3 for SO(3)
             phi_avg = np.zeros(ref_phi.shape)
 
             # Debug: Check all phis have correct shape
@@ -971,21 +971,21 @@ class MultiScaleSystem:
                         f"Gauge frame shape mismatch in meta-agent formation:\n"
                         f"  Reference (agent 0): {ref_phi.shape}\n"
                         f"  Agent {i}: {phi.shape}\n"
-                        f"  Expected: {ref_phi.shape} = (*spatial_shape={spatial_shape}, K={K}, K={K})\n"
+                        f"  Expected: (*spatial, 3) = {ref_phi.shape}\n"
                         f"  All constituents must have same spatial shape and gauge group!"
                     )
 
             # Loop over all spatial points
             for idx in np.ndindex(spatial_shape):
-                # Extract (K, K) matrices at this spatial point from all agents
+                # Extract axis-angle vectors (shape (3,)) at this spatial point from all agents
                 phis_at_point = [phi[idx] for phi in phis]
 
                 # Verify extraction worked correctly
                 for i, phi_at_pt in enumerate(phis_at_point):
-                    if phi_at_pt.shape != (K, K):
+                    if phi_at_pt.shape != (axis_angle_dim,):
                         raise ValueError(
                             f"Gauge frame extraction failed at spatial index {idx}:\n"
-                            f"  Agent {i}: got shape {phi_at_pt.shape}, expected ({K}, {K})\n"
+                            f"  Agent {i}: got shape {phi_at_pt.shape}, expected ({axis_angle_dim},)\n"
                             f"  Full phi shape: {phis[i].shape}"
                         )
 
