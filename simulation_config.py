@@ -152,6 +152,17 @@ class SimulationConfig:
     generate_meta_visualizations: bool = True
     snapshot_interval: int = 5  # Capture analyzer snapshots every N steps
 
+    # =============================================================================
+    # Pullback Geometry Tracking (Emergent Spacetime)
+    # =============================================================================
+    track_pullback_geometry: bool = False  # Enable pullback metric tracking
+    geometry_track_interval: int = 10  # Record geometry every N steps
+    geometry_enable_consensus: bool = False  # Compute consensus metrics (expensive!)
+    geometry_enable_gauge_averaging: bool = False  # Gauge averaging (very expensive!)
+    geometry_gauge_samples: int = 50  # MC samples for gauge averaging
+    geometry_lambda_obs: float = 0.1  # Observable sector threshold
+    geometry_lambda_dark: float = 0.01  # Dark sector threshold
+
     def __post_init__(self):
         """Compute derived parameters."""
         # Compute gaussian_sigma from overlap_threshold
@@ -195,6 +206,9 @@ class SimulationConfig:
                                "obs_r_scale", "obs_ground_truth_amplitude", "obs_ground_truth_modes"],
                 "Diagnostics": ["run_initial_diagnostics", "run_final_diagnostics",
                               "save_diagnostic_plots", "save_diagnostic_report"],
+                "Geometry": ["track_pullback_geometry", "geometry_track_interval",
+                           "geometry_enable_consensus", "geometry_enable_gauge_averaging",
+                           "geometry_gauge_samples", "geometry_lambda_obs", "geometry_lambda_dark"],
             }
 
             for section_name, keys in sections.items():
