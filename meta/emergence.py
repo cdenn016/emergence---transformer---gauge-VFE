@@ -735,7 +735,16 @@ class MultiScaleSystem:
             meta_agent._initialize_gauge()
 
             # Set renormalized values (overwrites initialized values)
+            print(f"\n[DEBUG] Meta-agent formation:")
+            print(f"  mu_q shape from renormalization: {mu_q.shape}")
+            print(f"  Sigma_q shape from renormalization: {Sigma_q.shape}")
+            print(f"  mu_p shape from renormalization: {mu_p.shape}")
+            print(f"  Sigma_p shape from renormalization: {Sigma_p.shape}")
+            print(f"  phi shape from averaging: {phi.shape}")
+
             meta_agent.mu_q = mu_q
+            print(f"  meta_agent.mu_q shape after assignment: {meta_agent.mu_q.shape}")
+
             meta_agent.Sigma_q = Sigma_q  # Triggers L_q recomputation via setter
             meta_agent.mu_p = mu_p
             meta_agent.Sigma_p = Sigma_p  # Triggers L_p recomputation via setter
