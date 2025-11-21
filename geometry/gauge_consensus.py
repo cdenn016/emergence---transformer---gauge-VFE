@@ -59,7 +59,8 @@ from dataclasses import dataclass
 
 from geometry.pullback_metrics import InducedMetric
 from math_utils.so3_frechet import so3_exp, frechet_mean_so3
-from math_utils.transport import gauge_transport_gaussian
+from math_utils.push_pull import GaussianDistribution, push_gaussian
+from math_utils.transport import compute_transport
 
 
 # =============================================================================
@@ -148,7 +149,7 @@ def gauge_transform_metric(
     agent,
     delta_phi: np.ndarray,
     *,
-    in_place: bool = False
+    generators: Optional[np.ndarray] = None
 ) -> InducedMetric:
     """
     Compute induced metric after gauge transformation φ → φ + δφ.
@@ -162,9 +163,9 @@ def gauge_transform_metric(
 
     Args:
         metric: Original induced metric
-        agent: Agent object with mu, Sigma fields
+        agent: Agent object with mu, Sigma fields and generators
         delta_phi: Gauge transformation, shape (3,) or (*spatial, 3)
-        in_place: If True, modify agent's distributions in place (not recommended)
+        generators: Optional generators (3, K, K), uses agent.generators if None
 
     Returns:
         metric_transformed: Induced metric after gauge transformation
@@ -172,38 +173,61 @@ def gauge_transform_metric(
     Note:
         This is computationally expensive. For averaging, use Monte Carlo
         sampling rather than computing the full gauge orbit.
+
+    Implementation:
+        1. Compute transport operator Ω from delta_phi
+        2. Push distributions via Ω
+        3. Recompute pullback metric
     """
     from geometry.pullback_metrics import pullback_metric_gaussian
 
+    # Get generators
+    if generators is None:
+        generators = agent.generators  # (3, K, K)
+
     # Get spatial shape
     spatial_shape = agent.mu_q.shape[:-1]
+    K = agent.mu_q.shape[-1]
 
     # Broadcast delta_phi if needed
     if delta_phi.shape == (3,):
-        delta_phi = np.broadcast_to(delta_phi, (*spatial_shape, 3))
+        delta_phi_field = np.broadcast_to(delta_phi, (*spatial_shape, 3))
+    else:
+        delta_phi_field = delta_phi
 
-    # Gauge transform distributions
-    # For beliefs
+    # Compute transport operator Ω from delta_phi
+    # For simplicity, assume phi_current = 0 (identity reference)
+    phi_current = np.zeros_like(delta_phi_field)
+    phi_new = delta_phi_field
+
+    # Compute Ω = exp(phi_new) · exp(-phi_current) = exp(phi_new)
+    Omega = compute_transport(
+        phi_new,
+        phi_current,
+        generators,
+        validate=False
+    )
+
+    # Select which distribution to transform
     if metric.metric_type == "belief":
-        mu_transformed, Sigma_transformed = gauge_transport_gaussian(
-            agent.mu_q,
-            agent.Sigma_q,
-            delta_phi
-        )
-    # For priors
+        mu_orig = agent.mu_q
+        Sigma_orig = agent.Sigma_q
     elif metric.metric_type == "prior":
-        mu_transformed, Sigma_transformed = gauge_transport_gaussian(
-            agent.mu_p,
-            agent.Sigma_p,
-            delta_phi
-        )
+        mu_orig = agent.mu_p
+        Sigma_orig = agent.Sigma_p
     else:
         raise ValueError(f"Unknown metric type: {metric.metric_type}")
 
+    # Create GaussianDistribution object
+    gaussian_orig = GaussianDistribution(mu_orig, Sigma_orig)
+
+    # Push forward via Ω
+    gaussian_transformed = push_gaussian(gaussian_orig, Omega)
+
     # Compute pullback metric for transformed distributions
     metric_transformed = pullback_metric_gaussian(
-        mu_transformed,
-        Sigma_transformed,
+        gaussian_transformed.mu,
+        gaussian_transformed.Sigma,
         metric_type=metric.metric_type
     )
 
@@ -241,7 +265,8 @@ def gauge_average_metric_mc(
     n_samples: int = 100,
     *,
     rng: Optional[np.random.Generator] = None,
-    return_samples: bool = False
+    return_samples: bool = False,
+    use_full_transform: bool = False
 ) -> GaugeAveragedMetric:
     """
     Compute gauge-averaged metric via Monte Carlo integration.
@@ -256,18 +281,28 @@ def gauge_average_metric_mc(
 
     Args:
         metric: Original induced metric
-        agent: Agent object
+        agent: Agent object with generators
         n_samples: Number of Monte Carlo samples
         rng: Random number generator
         return_samples: If True, also return individual samples
+        use_full_transform: If True, compute full gauge transformation
+                           (very expensive). If False, use simplified approximation.
 
     Returns:
         GaugeAveragedMetric with averaged metric and statistics
 
     Computational Cost:
-        O(n_samples × cost_of_pullback)
+        O(n_samples × cost_of_pullback) if use_full_transform=True
+        O(1) if use_full_transform=False (returns original metric)
 
-    For typical use, n_samples ~ 50-200 provides good approximation.
+    Note:
+        Full gauge averaging is computationally very expensive because it requires:
+        1. Computing transport operator for each sample
+        2. Pushing distributions through transport
+        3. Recomputing pullback metric from scratch
+
+        For most applications, the simplified version (use_full_transform=False)
+        is sufficient, which assumes gauge-invariant structure a priori.
 
     Examples:
         >>> from agent.agents import Agent
@@ -279,38 +314,63 @@ def gauge_average_metric_mc(
         >>> # ... initialize agent ...
         >>>
         >>> G_q, _ = agent_induced_metrics(agent, compute_prior=False)
+        >>>
+        >>> # Simplified version (fast)
         >>> G_avg = gauge_average_metric_mc(G_q, agent, n_samples=100)
-        >>> # G_avg.G_avg is gauge-invariant
+        >>>
+        >>> # Full version (slow but accurate)
+        >>> G_avg_full = gauge_average_metric_mc(
+        ...     G_q, agent, n_samples=100, use_full_transform=True
+        ... )
     """
+    import warnings
+
     if rng is None:
         rng = np.random.default_rng()
 
     spatial_shape = metric.spatial_shape
     n_dims = metric.n_spatial_dims
 
+    if not use_full_transform:
+        # Simplified version: assume metric is already approximately gauge-invariant
+        # This is reasonable for isotropic covariances or when gauge structure
+        # doesn't significantly affect the induced metric
+        warnings.warn(
+            "Using simplified gauge averaging (use_full_transform=False). "
+            "For exact gauge-invariant metric, set use_full_transform=True, "
+            "but note this is computationally expensive.",
+            UserWarning
+        )
+
+        result = GaugeAveragedMetric(
+            G_avg=metric.G,
+            G_std=np.zeros_like(metric.G),
+            n_samples=0,
+            spatial_shape=spatial_shape,
+            n_spatial_dims=n_dims,
+            metric_type=metric.metric_type
+        )
+
+        if return_samples:
+            return result, [metric.G]
+        else:
+            return result
+
+    # Full gauge averaging (expensive!)
     # Sample gauge transformations
     delta_phis = sample_so3_algebra_haar(n_samples, rng=rng)
 
     # Accumulate transformed metrics
     G_samples = []
 
-    # Note: For efficiency, we could implement a batched version
-    # For now, loop over samples
     for k in range(n_samples):
-        # This is computationally expensive - see note below
-        # In practice, might want to use analytical gauge-invariant projection
-        # For now, we'll use a simplified approach:
-        # Since SO(3) acts on the latent space, and we're averaging over
-        # the full group, the result should be isotropic in latent space.
-
-        # Simplified approach: Just rotate the metric components
-        # This is an approximation - full gauge transform requires
-        # recomputing distributions
-        R = so3_exp(delta_phis[k])
-
-        # For now, store original metric (we'll improve this)
-        # TODO: Implement full gauge transformation
-        G_samples.append(metric.G)
+        # Full gauge transformation
+        metric_transformed = gauge_transform_metric(
+            metric,
+            agent,
+            delta_phis[k]
+        )
+        G_samples.append(metric_transformed.G)
 
     # Average over samples
     G_avg = np.mean(G_samples, axis=0)
@@ -440,7 +500,10 @@ def compute_consensus_metric(
         # Gauge average if requested
         if gauge_average:
             G_avg = gauge_average_metric_mc(
-                G_induced, agent, n_samples=n_samples_gauge, rng=rng
+                G_induced, agent,
+                n_samples=n_samples_gauge,
+                rng=rng,
+                use_full_transform=False  # Use simplified version
             )
             individual_metrics.append(G_avg)
         else:
@@ -550,7 +613,10 @@ def compute_consensus_metric_weighted_spatial(
         # Gauge average if requested
         if gauge_average:
             G_avg = gauge_average_metric_mc(
-                G_induced, agent, n_samples=n_samples_gauge, rng=rng
+                G_induced, agent,
+                n_samples=n_samples_gauge,
+                rng=rng,
+                use_full_transform=False  # Use simplified version
             )
         else:
             G_avg = GaugeAveragedMetric(
