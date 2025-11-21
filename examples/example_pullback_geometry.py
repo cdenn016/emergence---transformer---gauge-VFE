@@ -67,6 +67,13 @@ def example_1_basic_pullback():
     K = 2
     Sigma_field = np.repeat(np.eye(K)[None], n_points, axis=0)  # (64, 2, 2)
 
+    # Debug: print shapes
+    print(f"\nDebug shapes:")
+    print(f"  x shape: {x.shape}")
+    print(f"  mu_field shape: {mu_field.shape}")
+    print(f"  Sigma_field shape: {Sigma_field.shape}")
+    print(f"  K = {K}")
+
     # Compute pullback metric
     metric = pullback_metric_gaussian(
         mu_field,

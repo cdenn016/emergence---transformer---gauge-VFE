@@ -457,6 +457,14 @@ def pullback_metric_gaussian(
     if n_spatial_dims == 0:
         raise ValueError("Cannot compute pullback metric for 0D base manifold")
 
+    # Validate shapes
+    if Sigma_field.shape != (*spatial_shape, K, K):
+        raise ValueError(
+            f"Shape mismatch: mu_field has spatial_shape={spatial_shape} and K={K}, "
+            f"but Sigma_field has shape {Sigma_field.shape}. "
+            f"Expected Sigma_field shape: {(*spatial_shape, K, K)}"
+        )
+
     # Sanitize covariance
     Sigma_field = sanitize_sigma(Sigma_field, eps)
     Sigma_inv_field = safe_inv(Sigma_field, eps)
@@ -466,6 +474,14 @@ def pullback_metric_gaussian(
     grad_mu = []
     for axis in range(n_spatial_dims):
         g = compute_spatial_gradients(mu_field, dx=dx, axis=axis, periodic=periodic)
+        # Validate gradient shape
+        expected_grad_shape = (*spatial_shape, K)
+        if g.shape != expected_grad_shape:
+            raise ValueError(
+                f"Gradient computation error: expected shape {expected_grad_shape}, "
+                f"got {g.shape} for axis {axis}. "
+                f"mu_field shape: {mu_field.shape}"
+            )
         grad_mu.append(g)
     grad_mu = np.stack(grad_mu, axis=0)  # (n_spatial_dims, *spatial, K)
 
