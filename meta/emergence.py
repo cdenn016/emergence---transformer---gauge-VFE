@@ -762,26 +762,29 @@ class MultiScaleSystem:
                 for i, agent in enumerate(constituents):
                     # Presence at this location
                     chi_i = agent.support.chi_weight[c_idx]
-                    
+
                     # Skip if negligible presence
                     if chi_i < 1e-6:
                         continue
-                    
+
                     # Combined weight: presence × coherence
                     w_i = chi_i * coherence_scores[i]
 
                     # Transport and accumulate
-                    # For spatial: omega has shape (*spatial, K, K), need omega[c_idx]
+                    # For spatial manifolds: omega has shape (*spatial, K, K)
                     omega = transports[i]
+
+                    # Extract transport operator at this spatial location
                     if omega.ndim > 2:
-                        # Spatial case: extract transport at this location
-                        omega_c = omega[c_idx]
-                        mu_weighted += w_i * (omega_c @ agent.mu_q[c_idx])
-                        Sigma_weighted += w_i * (omega_c @ agent.Sigma_q[c_idx] @ omega_c.T)
+                        omega_c = omega[c_idx]  # (K, K) at point c_idx
                     else:
-                        # Point manifold case
-                        mu_weighted += w_i * (omega @ agent.mu_q[c_idx])
-                        Sigma_weighted += w_i * (omega @ agent.Sigma_q[c_idx] @ omega.T)
+                        # Should not happen in spatial case - but handle gracefully
+                        # This means gauge frame is somehow not spatial
+                        omega_c = omega  # (K, K) - use same transform everywhere
+
+                    # Apply transport to beliefs at this point
+                    mu_weighted += w_i * (omega_c @ agent.mu_q[c_idx])
+                    Sigma_weighted += w_i * (omega_c @ agent.Sigma_q[c_idx] @ omega_c.T)
                     total_weight += w_i
                 
                 # Normalize
@@ -862,18 +865,20 @@ class MultiScaleSystem:
                     chi_i = agent.support.chi_weight[c_idx]
                     if chi_i < 1e-6:
                         continue
-                    
+
                     w_i = chi_i * coherence_scores[i]
                     omega = transports[i]
 
-                    # For spatial: extract transport at this location
+                    # Extract transport operator at this spatial location
                     if omega.ndim > 2:
-                        omega_c = omega[c_idx]
-                        mu_weighted += w_i * (omega_c @ agent.mu_p[c_idx])
-                        Sigma_weighted += w_i * (omega_c @ agent.Sigma_p[c_idx] @ omega_c.T)
+                        omega_c = omega[c_idx]  # (K, K) at point c_idx
                     else:
-                        mu_weighted += w_i * (omega @ agent.mu_p[c_idx])
-                        Sigma_weighted += w_i * (omega @ agent.Sigma_p[c_idx] @ omega.T)
+                        # Handle case where gauge frame is not spatial
+                        omega_c = omega  # (K, K) - use same transform everywhere
+
+                    # Apply transport to priors at this point
+                    mu_weighted += w_i * (omega_c @ agent.mu_p[c_idx])
+                    Sigma_weighted += w_i * (omega_c @ agent.Sigma_p[c_idx] @ omega_c.T)
                     total_weight += w_i
                 
                 if total_weight > 1e-6:
@@ -919,26 +924,15 @@ class MultiScaleSystem:
         
         # Extract gauge frames
         phis = [agent.gauge.phi for agent in constituents]
-        
-        # Compute weights
-        if constituents[0].base_manifold.is_point:
-            # 0D: Weight by coherence only (all χᵢ = 1)
-            weights = coherence_scores
-        else:
-            # Spatial: Weight by presence × coherence at center
-            center_idx = tuple(s//2 for s in constituents[0].base_manifold.shape)
-            weights = np.array([
-                agent.support.chi_weight[center_idx] * coherence_scores[i]
-                for i, agent in enumerate(constituents)
-            ])
-        
-        # Normalize weights
-        weights = weights / np.sum(weights)
 
         # Check dimensionality
         ref_phi = phis[0]
         if ref_phi.ndim == 2:
             # Point manifold: phi is (K, K)
+            # Compute global weights (coherence only, all χᵢ = 1)
+            weights = coherence_scores.copy()
+            weights = weights / np.sum(weights)
+
             # Check if all frames are nearly identical (fast path)
             phi_std = np.std(phis, axis=0)
             if np.max(phi_std) < 0.1 and method == 'frechet':
@@ -949,7 +943,7 @@ class MultiScaleSystem:
             phi_avg = average_gauge_frames_so3(phis, weights=weights, method=method)
         else:
             # Spatial manifold: phi is (*spatial, K, K)
-            # Compute Fréchet mean pointwise over spatial grid
+            # Compute Fréchet mean pointwise with spatially-varying weights
             spatial_shape = ref_phi.shape[:-2]
             K = ref_phi.shape[-1]
             phi_avg = np.zeros(ref_phi.shape)
@@ -959,14 +953,28 @@ class MultiScaleSystem:
                 # Extract (K, K) matrices at this spatial point from all agents
                 phis_at_point = [phi[idx] for phi in phis]
 
+                # Compute weights at this spatial point: w_i(x) = χ_i(x) · C̄_i
+                weights_at_point = np.array([
+                    agent.support.chi_weight[idx] * coherence_scores[i]
+                    for i, agent in enumerate(constituents)
+                ])
+
+                # Normalize
+                weight_sum = np.sum(weights_at_point)
+                if weight_sum > 1e-12:
+                    weights_at_point = weights_at_point / weight_sum
+                else:
+                    # No support here - use uniform weights
+                    weights_at_point = np.ones(len(constituents)) / len(constituents)
+
                 # Check if frames at this point are nearly identical
                 phi_std_point = np.std(phis_at_point, axis=0)
                 method_point = method
                 if np.max(phi_std_point) < 0.1 and method == 'frechet':
                     method_point = 'euclidean'
 
-                # Compute average at this point
-                phi_avg[idx] = average_gauge_frames_so3(phis_at_point, weights=weights, method=method_point)
+                # Compute average at this point with spatially-varying weights
+                phi_avg[idx] = average_gauge_frames_so3(phis_at_point, weights=weights_at_point, method=method_point)
 
         return phi_avg
     
