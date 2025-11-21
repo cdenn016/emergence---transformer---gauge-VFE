@@ -409,8 +409,15 @@ class HierarchicalAgent(Agent):
         print(f"  len(transported_beliefs) = {len(transported_beliefs)}")
 
         for idx, ((mu, Sigma), w) in enumerate(zip(transported_beliefs, weights)):
-            print(f"  Iteration {idx}: mu type={type(mu).__name__}, mu.shape={getattr(mu, 'shape', 'NO SHAPE')}, w={float(w):.6f}")
-            mu_p_new += w * mu
+            w_shape = getattr(w, 'shape', 'scalar')
+            w_val = repr(w) if w_shape == 'scalar' else f"array shape={w.shape}"
+            print(f"  Iteration {idx}: mu.shape={getattr(mu, 'shape', 'NO SHAPE')}, w={w_val}")
+            try:
+                mu_p_new += w * mu
+            except Exception as e:
+                print(f"    ERROR in accumulation: {e}")
+                print(f"    mu_p_new.shape={mu_p_new.shape}, w type={type(w).__name__}, mu type={type(mu).__name__}")
+                raise
             Sigma_p_new += w * Sigma
 
         # Regularize to ensure SPD
