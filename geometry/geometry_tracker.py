@@ -399,10 +399,12 @@ class GeometryTracker:
 
         # Panel 3: Top 3 eigenvalues (belief)
         ax = axes[1, 0]
-        for i in range(min(3, len(self.history.snapshots[0].mean_eigenvalues_belief or []))):
-            eigvals = [s.mean_eigenvalues_belief[i] if s.mean_eigenvalues_belief is not None else 0
-                      for s in self.history.snapshots]
-            ax.plot(steps, eigvals, linewidth=2, marker='o', markersize=3, label=f'λ_{i+1}')
+        first_eigvals = self.history.snapshots[0].mean_eigenvalues_belief
+        if first_eigvals is not None and len(first_eigvals) > 0:
+            for i in range(min(3, len(first_eigvals))):
+                eigvals = [s.mean_eigenvalues_belief[i] if s.mean_eigenvalues_belief is not None else 0
+                          for s in self.history.snapshots]
+                ax.plot(steps, eigvals, linewidth=2, marker='o', markersize=3, label=f'λ_{i+1}')
         ax.set_xlabel('Step')
         ax.set_ylabel('Eigenvalue')
         ax.set_title('Top Eigenvalues (Belief Geometry)')
