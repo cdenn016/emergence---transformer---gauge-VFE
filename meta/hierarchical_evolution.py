@@ -301,7 +301,10 @@ class HierarchicalEvolutionEngine:
             if grad.delta_mu_q is not None:
                 try:
                     Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
-                    info_sq += grad.delta_mu_q @ Sigma_inv @ grad.delta_mu_q
+                    # For spatial: (*spatial, K) @ (*spatial, K, K) @ (*spatial, K) -> (*spatial,)
+                    # Use einsum for proper broadcasting
+                    contrib = np.einsum('...i,...ij,...j->...', grad.delta_mu_q, Sigma_inv, grad.delta_mu_q)
+                    info_sq += np.sum(contrib)  # Sum over all spatial points
                 except np.linalg.LinAlgError:
                     # Fallback to norm if singular
                     info_sq += np.sum(grad.delta_mu_q ** 2)
@@ -311,12 +314,19 @@ class HierarchicalEvolutionEngine:
                 try:
                     Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
                     M = Sigma_inv @ grad.delta_Sigma_q
-                    info_sq += np.trace(M @ M)
+                    # For spatial: need to trace over K×K then sum over spatial
+                    if M.ndim > 2:
+                        # Spatial case: (*spatial, K, K)
+                        contrib = np.trace(M @ M, axis1=-2, axis2=-1)  # -> (*spatial,)
+                        info_sq += np.sum(contrib)  # Sum over spatial
+                    else:
+                        # Point manifold: (K, K)
+                        info_sq += np.trace(M @ M)
                 except np.linalg.LinAlgError:
                     info_sq += np.sum(grad.delta_Sigma_q ** 2) / agent.K
 
-            # Convert to nats
-            info_nats = np.sqrt(max(info_sq, 0.0))
+            # Convert to nats (info_sq is now scalar)
+            info_nats = np.sqrt(np.maximum(info_sq, 0.0))
 
             # Convert to bits
             info_change = info_nats / np.log(2)
@@ -331,7 +341,9 @@ class HierarchicalEvolutionEngine:
             if grad.delta_mu_q is not None:
                 try:
                     Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
-                    info_sq += grad.delta_mu_q @ Sigma_inv @ grad.delta_mu_q
+                    # Use einsum for spatial broadcasting
+                    contrib = np.einsum('...i,...ij,...j->...', grad.delta_mu_q, Sigma_inv, grad.delta_mu_q)
+                    info_sq += np.sum(contrib)
                 except:
                     info_sq += np.sum(grad.delta_mu_q ** 2)
 
@@ -339,11 +351,17 @@ class HierarchicalEvolutionEngine:
                 try:
                     Sigma_inv = np.linalg.inv(agent.Sigma_q + 1e-6 * np.eye(agent.K))
                     M = Sigma_inv @ grad.delta_Sigma_q
-                    info_sq += np.trace(M @ M) / 2
+                    if M.ndim > 2:
+                        # Spatial case
+                        contrib = np.trace(M @ M, axis1=-2, axis2=-1) / 2
+                        info_sq += np.sum(contrib)
+                    else:
+                        # Point manifold
+                        info_sq += np.trace(M @ M) / 2
                 except:
                     info_sq += np.sum(grad.delta_Sigma_q ** 2) / (2 * agent.K)
 
-            info_change = np.sqrt(info_sq) / np.log(2)  # bits
+            info_change = np.sqrt(np.maximum(info_sq, 0.0)) / np.log(2)  # bits
 
         elif self.config.info_change_metric == "gradient_norm":
             # Fallback: simple gradient norm (not gauge-aware)
