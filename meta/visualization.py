@@ -154,12 +154,25 @@ class MetaAgentAnalyzer:
             return np.array([])
 
         # Get means and covariances
-        if metric == 'belief':
-            mus = np.array([a.mu_q for a in agents])
-            Sigmas = np.array([a.Sigma_q for a in agents])
-        else:  # prior
-            mus = np.array([a.mu_p for a in agents])
-            Sigmas = np.array([a.Sigma_p for a in agents])
+        # For spatial manifolds: use center point for visualization
+        is_spatial = not agents[0].base_manifold.is_point
+
+        if is_spatial:
+            center_idx = tuple(s//2 for s in agents[0].base_manifold.shape)
+            if metric == 'belief':
+                mus = np.array([a.mu_q[center_idx] for a in agents])
+                Sigmas = np.array([a.Sigma_q[center_idx] for a in agents])
+            else:  # prior
+                mus = np.array([a.mu_p[center_idx] for a in agents])
+                Sigmas = np.array([a.Sigma_p[center_idx] for a in agents])
+        else:
+            # Point manifold: use fields directly
+            if metric == 'belief':
+                mus = np.array([a.mu_q for a in agents])
+                Sigmas = np.array([a.Sigma_q for a in agents])
+            else:  # prior
+                mus = np.array([a.mu_p for a in agents])
+                Sigmas = np.array([a.Sigma_p for a in agents])
 
         # Compute pairwise KL divergences
         kl_matrix = np.zeros((n, n))
