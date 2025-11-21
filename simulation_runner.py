@@ -331,12 +331,71 @@ def _run_standard_training(system, cfg, output_dir):
         checkpoint_dir=str(output_dir / "checkpoints"),
     )
 
+    # Initialize geometry tracker if enabled
+    geometry_tracker = None
+    if cfg.track_pullback_geometry:
+        from geometry.geometry_tracker import GeometryTracker
+
+        print("\n  Initializing Pullback Geometry Tracker...")
+        print(f"    Track interval: every {cfg.geometry_track_interval} steps")
+        print(f"    Consensus metrics: {'ENABLED' if cfg.geometry_enable_consensus else 'DISABLED'}")
+        print(f"    Gauge averaging: {'ENABLED' if cfg.geometry_enable_gauge_averaging else 'DISABLED'}")
+
+        # Compute dx from spatial shape
+        manifold = system.agents[0].base_manifold
+        if manifold.ndim > 0:
+            dx = 2 * np.pi / manifold.shape[0]  # Assuming periodic [0, 2π]
+        else:
+            dx = 1.0  # Point manifold
+
+        geometry_tracker = GeometryTracker(
+            agents=system.agents,
+            track_interval=cfg.geometry_track_interval,
+            dx=dx,
+            enable_consensus=cfg.geometry_enable_consensus,
+            enable_gauge_averaging=cfg.geometry_enable_gauge_averaging,
+            gauge_samples=cfg.geometry_gauge_samples,
+            lambda_obs=cfg.geometry_lambda_obs,
+            lambda_dark=cfg.geometry_lambda_dark
+        )
+
     trainer = Trainer(system, training_cfg)
-    history = trainer.train()
+
+    # Training loop with geometry tracking
+    if geometry_tracker is not None:
+        print("  Training with geometry tracking...")
+        # Record initial geometry
+        geometry_tracker.record(0, system.agents)
+
+        # Train with manual loop to inject geometry tracking
+        for step in range(cfg.n_steps):
+            # Single training step
+            trainer.step()
+
+            # Record geometry
+            if geometry_tracker.should_record(step + 1):
+                geometry_tracker.record(step + 1, system.agents)
+
+        history = trainer.history
+    else:
+        # Standard training without geometry tracking
+        history = trainer.train()
 
     # Save history
     _save_history(history, output_dir)
     _plot_energy(history, output_dir)
+
+    # Save and visualize geometry if tracked
+    if geometry_tracker is not None:
+        print("\n  Saving pullback geometry data...")
+        geometry_tracker.save(output_dir / "geometry_history.pkl")
+        geometry_tracker.plot_evolution(output_dir / "geometry_evolution.png")
+
+        if cfg.geometry_enable_consensus:
+            geometry_tracker.plot_consensus_evolution(output_dir / "geometry_consensus.png")
+
+        from geometry.geometry_tracker import analyze_final_geometry
+        analyze_final_geometry(geometry_tracker.history, save_dir=output_dir / "geometry_analysis")
 
     return history
 
@@ -369,6 +428,43 @@ def _run_hierarchical_training(system, cfg, output_dir):
     )
 
     engine = HierarchicalEvolutionEngine(system, hier_config)
+
+    # Initialize geometry tracker if enabled
+    geometry_tracker = None
+    if cfg.track_pullback_geometry:
+        from geometry.geometry_tracker import GeometryTracker
+
+        print("\n  Initializing Pullback Geometry Tracker...")
+        print(f"    Track interval: every {cfg.geometry_track_interval} steps")
+        print(f"    Consensus metrics: {'ENABLED' if cfg.geometry_enable_consensus else 'DISABLED'}")
+        print(f"    Gauge averaging: {'ENABLED' if cfg.geometry_enable_gauge_averaging else 'DISABLED'}")
+
+        # Get base agents
+        base_agents = system.agents[0]  # Scale 0 agents
+
+        # Compute dx from spatial shape
+        if len(base_agents) > 0:
+            manifold = base_agents[0].base_manifold
+            if manifold.ndim > 0:
+                dx = 2 * np.pi / manifold.shape[0]  # Assuming periodic [0, 2π]
+            else:
+                dx = 1.0  # Point manifold
+        else:
+            dx = 1.0
+
+        geometry_tracker = GeometryTracker(
+            agents=base_agents,
+            track_interval=cfg.geometry_track_interval,
+            dx=dx,
+            enable_consensus=cfg.geometry_enable_consensus,
+            enable_gauge_averaging=cfg.geometry_enable_gauge_averaging,
+            gauge_samples=cfg.geometry_gauge_samples,
+            lambda_obs=cfg.geometry_lambda_obs,
+            lambda_dark=cfg.geometry_lambda_dark
+        )
+
+        # Record initial geometry
+        geometry_tracker.record(0, base_agents)
 
     # Initialize comprehensive visualization tools
     analyzer = None
@@ -420,6 +516,11 @@ def _run_hierarchical_training(system, cfg, output_dir):
         # Evolve one step
         metrics = engine.evolve_step(learning_rate=cfg.lr_mu_q, compute_gradients_fn=compute_grads)
 
+        # Record geometry if tracking enabled
+        if geometry_tracker is not None and geometry_tracker.should_record(step + 1):
+            base_agents = system.agents[0]  # Track base agents only
+            geometry_tracker.record(step + 1, base_agents)
+
         # Capture visualization snapshots
         if cfg.generate_meta_visualizations:
             if step % cfg.snapshot_interval == 0 or step == cfg.n_steps - 1:
@@ -470,6 +571,18 @@ def _run_hierarchical_training(system, cfg, output_dir):
 
     # Save history
     _save_history(history, output_dir)
+
+    # Save and visualize geometry if tracked
+    if geometry_tracker is not None:
+        print("\n  Saving pullback geometry data...")
+        geometry_tracker.save(output_dir / "geometry_history.pkl")
+        geometry_tracker.plot_evolution(output_dir / "geometry_evolution.png")
+
+        if cfg.geometry_enable_consensus:
+            geometry_tracker.plot_consensus_evolution(output_dir / "geometry_consensus.png")
+
+        from geometry.geometry_tracker import analyze_final_geometry
+        analyze_final_geometry(geometry_tracker.history, save_dir=output_dir / "geometry_analysis")
 
     # Generate visualizations
     if cfg.generate_meta_visualizations and analyzer and diagnostics:
