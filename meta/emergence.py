@@ -212,9 +212,15 @@ class HierarchicalAgent(Agent):
                     validate=False
                 )
 
-                # Store hyperprior
-                mu_h = omega_ancestor @ current_ancestor.mu_q
-                Sigma_h = omega_ancestor @ current_ancestor.Sigma_q @ omega_ancestor.T
+                # Store hyperprior (handle both point and spatial manifolds)
+                if omega_ancestor.ndim > 2:
+                    # Spatial manifold: use einsum
+                    mu_h = np.einsum('...ij,...j->...i', omega_ancestor, current_ancestor.mu_q)
+                    Sigma_h = np.einsum('...ik,...kl,...jl->...ij', omega_ancestor, current_ancestor.Sigma_q, omega_ancestor)
+                else:
+                    # Point manifold
+                    mu_h = omega_ancestor @ current_ancestor.mu_q
+                    Sigma_h = omega_ancestor @ current_ancestor.Sigma_q @ omega_ancestor.T
 
                 # Regularize
                 Sigma_h = 0.5 * (Sigma_h + Sigma_h.T)
@@ -267,8 +273,15 @@ class HierarchicalAgent(Agent):
                 validate=False
             )
 
-            mu_transported = omega @ agent.mu_q
-            Sigma_transported = omega @ agent.Sigma_q @ omega.T
+            # Transport beliefs (handle both point and spatial manifolds)
+            if omega.ndim > 2:
+                # Spatial manifold: use einsum
+                mu_transported = np.einsum('...ij,...j->...i', omega, agent.mu_q)
+                Sigma_transported = np.einsum('...ik,...kl,...jl->...ij', omega, agent.Sigma_q, omega)
+            else:
+                # Point manifold
+                mu_transported = omega @ agent.mu_q
+                Sigma_transported = omega @ agent.Sigma_q @ omega.T
 
             # Regularize to ensure SPD after transport
             Sigma_transported = 0.5 * (Sigma_transported + Sigma_transported.T)  # Symmetrize
@@ -291,8 +304,15 @@ class HierarchicalAgent(Agent):
                     validate=False
                 )
 
-                mu_other = omega_other @ other_agent.mu_q
-                Sigma_other = omega_other @ other_agent.Sigma_q @ omega_other.T
+                # Transport other agent's beliefs
+                if omega_other.ndim > 2:
+                    # Spatial manifold: use einsum
+                    mu_other = np.einsum('...ij,...j->...i', omega_other, other_agent.mu_q)
+                    Sigma_other = np.einsum('...ik,...kl,...jl->...ij', omega_other, other_agent.Sigma_q, omega_other)
+                else:
+                    # Point manifold
+                    mu_other = omega_other @ other_agent.mu_q
+                    Sigma_other = omega_other @ other_agent.Sigma_q @ omega_other.T
 
                 # Regularize to ensure SPD after transport
                 Sigma_other = 0.5 * (Sigma_other + Sigma_other.T)  # Symmetrize
@@ -1010,7 +1030,23 @@ class MultiScaleSystem:
                     method_point = 'euclidean'
 
                 # Compute average at this point with spatially-varying weights
-                phi_avg[idx] = average_gauge_frames_so3(phis_at_point, weights=weights_at_point, method=method_point)
+                try:
+                    phi_avg[idx] = average_gauge_frames_so3(phis_at_point, weights=weights_at_point, method=method_point)
+                except Exception as e:
+                    print(f"\n{'='*70}")
+                    print(f"ERROR in gauge frame averaging at spatial point {idx}")
+                    print(f"{'='*70}")
+                    print(f"phis_at_point shapes: {[p.shape for p in phis_at_point]}")
+                    print(f"phis_at_point types: {[type(p) for p in phis_at_point]}")
+                    print(f"weights_at_point shape: {weights_at_point.shape}")
+                    print(f"weights_at_point: {weights_at_point}")
+                    print(f"method: {method_point}")
+                    print(f"Full phis shapes: {[p.shape for p in phis]}")
+                    print(f"spatial_shape: {spatial_shape}")
+                    print(f"axis_angle_dim: {axis_angle_dim}")
+                    for i, phi_pt in enumerate(phis_at_point):
+                        print(f"  Agent {i} phi at {idx}: shape={phi_pt.shape}, value={phi_pt}")
+                    raise
 
         return phi_avg
     
