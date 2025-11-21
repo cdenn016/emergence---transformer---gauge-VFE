@@ -282,7 +282,7 @@ def example_4_eigenvalue_sectors():
     # Create 2D base manifold with high-dimensional latent space
     config = AgentConfig(
         spatial_shape=(16, 16),  # 2D base manifold
-        K=10,  # 10-dimensional latent space
+        K=11,  # 11-dimensional latent space (must be odd for SO(3) irreps)
         alpha=0.1
     )
 
@@ -296,17 +296,17 @@ def example_4_eigenvalue_sectors():
     X, Y = np.meshgrid(x, y)
 
     # Initialize mu_p with structure in first 3 dimensions only
-    mu_p = np.zeros((H, W, 10), dtype=np.float32)
+    mu_p = np.zeros((H, W, 11), dtype=np.float32)
     mu_p[..., 0] = np.sin(X) * np.cos(Y)  # Active
     mu_p[..., 1] = np.cos(X) * np.sin(Y)  # Active
     mu_p[..., 2] = 0.5 * np.sin(2*X)       # Active
-    # Dimensions 3-9: inactive (zero gradient)
+    # Dimensions 3-10: inactive (zero gradient)
 
     agent.mu_p = mu_p
 
     # Prior covariance (constant, isotropic)
     Sigma_p = np.repeat(
-        np.eye(10)[None, None, :, :],
+        np.eye(11)[None, None, :, :],
         H,
         axis=0
     )
