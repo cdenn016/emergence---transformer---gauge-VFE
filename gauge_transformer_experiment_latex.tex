@@ -1,0 +1,212 @@
+% Gauge-Theoretic Transformer Experiment Configuration for Manuscript
+% Copy this into your LaTeX document
+
+\subsection{Experimental Configuration}
+
+We evaluated the gauge-theoretic transformer architecture on the WikiText-2 language modeling benchmark using the configuration detailed in Table~\ref{tab:gauge_transformer_config}. The experimental setup employs a minimal but meaningful architecture to isolate the effects of variational gradient engine dynamics and gauge-theoretic learning.
+
+\begin{table}[htbp]
+\centering
+\caption{Gauge-Theoretic Transformer Configuration}
+\label{tab:gauge_transformer_config}
+\begin{tabular}{llr}
+\toprule
+\textbf{Category} & \textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{3}{l}{\textit{Model Architecture}} \\
+& Vocabulary size & 512 \\
+& Embedding dimension ($K$) & 21 \\
+& Number of layers ($L$) & 3 \\
+& Hidden dimension & 84 \\
+& Maximum sequence length ($N$) & 64 \\
+& Position encoding & Learned \\
+& Tie embeddings & True \\
+\midrule
+\multicolumn{3}{l}{\textit{SO(3) Irreducible Representations}} \\
+& $\ell=0$ (scalars) & $5 \times 1 = 5$ dim \\
+& $\ell=1$ (vectors) & $2 \times 3 = 6$ dim \\
+& $\ell=2$ (tensors) & $1 \times 5 = 5$ dim \\
+& Total embedding dimension & $5 + 6 + 5 = 21$ \\
+\midrule
+\multicolumn{3}{l}{\textit{Attention Mechanism}} \\
+& Pattern & Full \\
+& Window size & 32 \\
+& Softmax temperature ($\kappa_\beta$) & 1.0 \\
+& Gauge evolution ($\phi$) & Disabled \\
+& Covariance evolution ($\Sigma$) & Disabled \\
+\midrule
+\multicolumn{3}{l}{\textit{Feed-Forward Network}} \\
+& Mode & Variational gradient engine \\
+& Prior weight ($\alpha$) & 0.2 \\
+& Effective temperature ($\tau_{\text{eff}}$) & 1.0 \\
+& Softmax temperature ($\kappa$) & 1.0 \\
+& Inference iterations & 1 \\
+& Learnable step size & True \\
+& Sparse pattern & Full \\
+& Window size & 32 \\
+\midrule
+\multicolumn{3}{l}{\textit{Training Dynamics}} \\
+& Batch size & 8 \\
+& Maximum steps & 15,000 \\
+& Warmup steps & 4,000 \\
+& Early stopping patience & 3,000 \\
+& Gradient clipping & Disabled \\
+\midrule
+\multicolumn{3}{l}{\textit{Natural Gradient Learning Rates}} \\
+& Belief means ($\eta_\mu$) & 0.25 \\
+& Belief covariances ($\eta_\Sigma$) & 0 (fixed) \\
+& Gauge transformations ($\eta_\phi$) & 0 (fixed) \\
+& FFN parameters ($\eta_{\text{FFN}}$) & 0.25 \\
+\midrule
+\multicolumn{3}{l}{\textit{Free Energy Weights}} \\
+& Self-consistency ($\alpha$) & 0.2 \\
+& Belief alignment ($\beta$) & 1.0 \\
+& Model alignment ($\lambda_\gamma$) & 0 (disabled) \\
+& Coupling temperature ($\kappa_\gamma$) & 1.0 \\
+\midrule
+\multicolumn{3}{l}{\textit{Regularization}} \\
+& Weight decay & 0.01 \\
+& Dropout & 0.1 \\
+\midrule
+\multicolumn{3}{l}{\textit{Evaluation}} \\
+& Logging interval & 100 steps \\
+& Evaluation interval & 500 steps \\
+& Checkpoint interval & 1,500 steps \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Design Rationale}
+
+\paragraph{Minimal Architecture with Meaningful Capacity.}
+The model employs 3 layers with 21-dimensional embeddings, providing sufficient capacity for non-trivial learning while remaining computationally tractable. The hidden dimension of 84 ($4 \times K$) follows standard practice, and the sequence length of 64 tokens allows capture of local dependencies without computational overhead. This minimal design isolates the effects of gauge-theoretic learning from architectural complexity.
+
+\paragraph{SO(3) Equivariant Structure.}
+The 21-dimensional embedding space decomposes into irreducible representations of SO(3): 5 scalar channels ($\ell=0$), 6 vector channels ($\ell=1$, organized as 2 triplets), and 5 second-order tensor channels ($\ell=2$). This structure enforces rotational equivariance in the latent space, providing geometric inductive bias without constraining representational capacity. The odd dimensionality ($K=21$) is required for proper SO(3) representation theory.
+
+\paragraph{Variational Gradient Engine.}
+The feed-forward network implements variational inference via gradient descent on the free energy landscape. At each forward pass, the model performs a single iteration of natural gradient descent to refine token beliefs $q_t(z)$, balancing self-consistency (KL divergence from prior) with lateral coherence (belief alignment with context). The learnable step size parameter adapts the inference dynamics during training.
+
+\paragraph{Balanced Free Energy Landscape.}
+The free energy weighting emphasizes belief alignment ($\beta = 1.0$) over self-consistency ($\alpha = 0.2$), encouraging contextual integration. Model alignment is disabled ($\lambda_\gamma = 0$) to focus on belief dynamics without hierarchical coupling. This configuration enables study of lateral information flow in the absence of explicit priors.
+
+\paragraph{Natural Gradient Optimization.}
+Learning rates are set uniformly ($\eta_\mu = \eta_{\text{FFN}} = 0.25$) with 4,000-step warmup for stability. Covariance and gauge parameters remain fixed ($\eta_\Sigma = \eta_\phi = 0$) to isolate mean-field dynamics. This simplified geometry reduces the computational burden of Fisher information metrics while preserving the essential variational structure.
+
+% Compact version for space-constrained journals:
+
+\begin{table}[htbp]
+\centering
+\caption{Gauge Transformer Configuration (Compact)}
+\label{tab:gauge_transformer_compact}
+\small
+\begin{tabular}{lr|lr}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Parameter} & \textbf{Value} \\
+\midrule
+Vocab size & 512 & $\alpha$ (self) & 0.2 \\
+$K$ (embed dim) & 21 & $\beta$ (belief) & 1.0 \\
+$L$ (layers) & 3 & $\lambda_\gamma$ (model) & 0 \\
+$N$ (seq len) & 64 & $\eta_\mu$ & 0.25 \\
+Hidden dim & 84 & $\eta_\Sigma$ & 0 \\
+Batch size & 8 & $\eta_\phi$ & 0 \\
+Max steps & 15,000 & $\eta_{\text{FFN}}$ & 0.25 \\
+Warmup & 4,000 & Dropout & 0.1 \\
+$\ell=0$ dim & 5 & Weight decay & 0.01 \\
+$\ell=1$ dim & 6 & FFN mode & VGE \\
+$\ell=2$ dim & 5 & Learnable LR & True \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% For the methods section:
+
+\subsection{Model Architecture}
+
+The gauge-theoretic transformer extends the standard transformer architecture~\cite{vaswani2017attention} with variational inference and gauge symmetry. Each layer $\ell \in \{1, \ldots, L\}$ processes a sequence of $N$ tokens, maintaining belief distributions $q_t^{(\ell)}(z)$ over latent codes $z \in \mathbb{R}^K$.
+
+\subsubsection{SO(3)-Equivariant Embeddings}
+
+Token embeddings lie in a $K=21$ dimensional space structured as a direct sum of SO(3) irreducible representations:
+%
+\begin{equation}
+\mathbb{R}^{21} = \underbrace{\mathbb{R}^5}_{\ell=0} \oplus \underbrace{\mathbb{R}^6}_{\ell=1} \oplus \underbrace{\mathbb{R}^5}_{\ell=2}
+\end{equation}
+%
+where $\ell$ denotes the angular momentum quantum number. This decomposition ensures that latent representations transform covariantly under rotations, providing geometric inductive bias.
+
+\subsubsection{Gauge-Theoretic Attention}
+
+Self-attention computes contextualized beliefs via weighted aggregation:
+%
+\begin{equation}
+q_t(z) \leftarrow \sum_{s=1}^N \beta_{ts} \, \Omega_{ts}[q_s(z)]
+\end{equation}
+%
+where $\beta_{ts} = \text{softmax}_s(\langle q_t, q_s \rangle / \sqrt{K})$ are attention weights and $\Omega_{ts} = \exp(\phi_t) \exp(-\phi_s)$ is the gauge transport operator. The transport ensures that beliefs from different tokens are compared in a gauge-invariant manner.
+
+\subsubsection{Variational Feed-Forward Network}
+
+The FFN implements a single step of natural gradient descent on the token-wise free energy:
+%
+\begin{equation}
+F_t = \alpha \, \text{KL}(q_t \| p_t) + \beta \sum_{s \in \mathcal{N}(t)} w_{ts} \, \text{KL}(q_t \| \Omega_{ts}[q_s])
+\end{equation}
+%
+where $p_t$ is the prior (from the previous layer), $\mathcal{N}(t)$ is the local context window, and $w_{ts}$ are learned coupling weights. The belief update follows:
+%
+\begin{equation}
+q_t \leftarrow q_t - \eta \, \nabla_{q_t} F_t
+\end{equation}
+%
+where $\eta$ is the learnable step size. This implements variational inference as a learned optimization process.
+
+\subsection{Training Procedure}
+
+Models were trained on WikiText-2~\cite{merity2016pointer}, a standard language modeling benchmark containing approximately 2 million tokens from Wikipedia articles. The dataset was tokenized at the character level, yielding a vocabulary of 512 unique characters (including special tokens).
+
+Training followed a standard autoregressive objective, predicting the next token $x_{t+1}$ given context $x_{1:t}$:
+%
+\begin{equation}
+\mathcal{L}_{\text{LM}} = -\mathbb{E}_{x \sim \text{Data}} \left[ \sum_{t=1}^{N-1} \log p(x_{t+1} \mid x_{1:t}; \theta) \right]
+\end{equation}
+%
+where $p(x_{t+1} \mid x_{1:t}; \theta)$ is the model's predictive distribution.
+
+\subsubsection{Optimization}
+
+Parameters were optimized via natural gradient descent with the Fisher information metric:
+%
+\begin{equation}
+\theta \leftarrow \theta - \eta \, \mathcal{F}^{-1} \nabla_\theta \mathcal{L}
+\end{equation}
+%
+where $\mathcal{F}$ is the Fisher information matrix. For computational tractability, we employed a block-diagonal approximation, treating belief means, covariances, and gauge parameters as independent blocks.
+
+Learning rates were set to $\eta_\mu = 0.25$ for belief means and $\eta_{\text{FFN}} = 0.25$ for FFN parameters, with covariance and gauge parameters held fixed ($\eta_\Sigma = \eta_\phi = 0$). A 4,000-step linear warmup was applied for stability, followed by constant learning rates. Training ran for a maximum of 15,000 steps with early stopping after 3,000 steps without validation improvement.
+
+\subsubsection{Ablation Studies}
+
+To isolate the contribution of gauge-theoretic components, we conducted ablation studies across four FFN configurations:
+%
+\begin{itemize}
+\item \textbf{Standard MLP}: Conventional feed-forward network with ReLU activations
+\item \textbf{Learned}: Parameterized transformation without variational structure
+\item \textbf{Variational}: Fixed-prior variational inference ($\alpha = 0.2$, no lateral coupling)
+\item \textbf{Variational Gradient Engine (VGE)}: Full model with belief alignment ($\beta = 1.0$)
+\end{itemize}
+
+All configurations maintained identical layer dimensions, training procedures, and hyperparameters, differing only in the FFN mechanism. This controlled comparison reveals the impact of variational inference and gauge symmetry on language modeling performance.
+
+\subsubsection{Evaluation Metrics}
+
+Models were evaluated on held-out validation and test sets using:
+%
+\begin{itemize}
+\item \textbf{Perplexity}: $\exp(\mathcal{L}_{\text{LM}})$, measuring predictive uncertainty
+\item \textbf{Bits-per-character (BPC)}: $\mathcal{L}_{\text{LM}} / \log 2$, information-theoretic compression
+\item \textbf{Convergence speed}: Steps required to reach target validation performance
+\item \textbf{Free energy decomposition}: Relative contributions of $F_{\text{self}}$ and $F_{\text{belief}}$
+\end{itemize}
+
+All experiments used random seed 42 for reproducibility. Training was conducted on a single NVIDIA GPU with mixed-precision (FP16) arithmetic. Comprehensive diagnostics were logged at 100-step intervals, including per-layer free energy components, attention entropy, and belief coherence metrics.
