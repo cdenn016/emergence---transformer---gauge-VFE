@@ -934,16 +934,40 @@ class MultiScaleSystem:
         
         # Normalize weights
         weights = weights / np.sum(weights)
-        
-        # Check if all frames are nearly identical (fast path)
-        phi_std = np.std(phis, axis=0)
-        if np.max(phi_std) < 0.1 and method == 'frechet':
-            # All frames within 0.1 rad - Euclidean average is accurate enough
-            method = 'euclidean'
-        
-        # Compute average
-        phi_avg = average_gauge_frames_so3(phis, weights=weights, method=method)
-        
+
+        # Check dimensionality
+        ref_phi = phis[0]
+        if ref_phi.ndim == 2:
+            # Point manifold: phi is (K, K)
+            # Check if all frames are nearly identical (fast path)
+            phi_std = np.std(phis, axis=0)
+            if np.max(phi_std) < 0.1 and method == 'frechet':
+                # All frames within 0.1 rad - Euclidean average is accurate enough
+                method = 'euclidean'
+
+            # Compute average
+            phi_avg = average_gauge_frames_so3(phis, weights=weights, method=method)
+        else:
+            # Spatial manifold: phi is (*spatial, K, K)
+            # Compute Fréchet mean pointwise over spatial grid
+            spatial_shape = ref_phi.shape[:-2]
+            K = ref_phi.shape[-1]
+            phi_avg = np.zeros(ref_phi.shape)
+
+            # Loop over all spatial points
+            for idx in np.ndindex(spatial_shape):
+                # Extract (K, K) matrices at this spatial point from all agents
+                phis_at_point = [phi[idx] for phi in phis]
+
+                # Check if frames at this point are nearly identical
+                phi_std_point = np.std(phis_at_point, axis=0)
+                method_point = method
+                if np.max(phi_std_point) < 0.1 and method == 'frechet':
+                    method_point = 'euclidean'
+
+                # Compute average at this point
+                phi_avg[idx] = average_gauge_frames_so3(phis_at_point, weights=weights, method=method_point)
+
         return phi_avg
     
     def _compute_meta_support(self,
@@ -1399,16 +1423,21 @@ class MultiScaleSystem:
                         kl_belief_max = np.max(kl_belief)  # Strictest criterion
                         kl_belief_mean = np.mean(kl_belief)  # For reporting
                         belief_ok = "✓" if kl_belief_max < kl_threshold else "✗"
+                        kl_belief_str = f"mean={kl_belief_mean:.6f} max={kl_belief_max:.6f}"
                     else:
                         kl_belief_mean = float(kl_belief)
+                        kl_belief_max = kl_belief_mean
                         belief_ok = "✓" if kl_belief < kl_threshold else "✗"
+                        kl_belief_str = f"{kl_belief_mean:.6f}"
                 except:
                     kl_belief_mean = float('inf')
+                    kl_belief_max = float('inf')
                     belief_ok = "✗"
+                    kl_belief_str = "inf"
 
                 if identical_priors:
                     # Skip model check - priors are identical by construction
-                    print(f"      {i}↔{j}: belief={kl_belief_mean:.6f}{belief_ok}")
+                    print(f"      {i}↔{j}: belief {kl_belief_str}{belief_ok}")
                 else:
                     # Check MODEL consensus
                     # For spatial: use einsum for proper broadcasting
@@ -1431,16 +1460,21 @@ class MultiScaleSystem:
                             kl_model_max = np.max(kl_model)  # Strictest criterion
                             kl_model_mean = np.mean(kl_model)  # For reporting
                             model_ok = "✓" if kl_model_max < kl_threshold else "✗"
+                            kl_model_str = f"mean={kl_model_mean:.6f} max={kl_model_max:.6f}"
                         else:
                             kl_model_mean = float(kl_model)
+                            kl_model_max = kl_model_mean
                             model_ok = "✓" if kl_model < kl_threshold else "✗"
+                            kl_model_str = f"{kl_model_mean:.6f}"
                     except:
                         kl_model_mean = float('inf')
+                        kl_model_max = float('inf')
                         model_ok = "✗"
+                        kl_model_str = "inf"
 
                     # Epistemic death = BOTH consensus
                     both_ok = "✓✓" if (belief_ok == "✓" and model_ok == "✓") else "✗✗"
-                    print(f"      {i}↔{j}: belief={kl_belief_mean:.6f}{belief_ok} model={kl_model_mean:.6f}{model_ok} {both_ok}")
+                    print(f"      {i}↔{j}: belief {kl_belief_str}{belief_ok} | model {kl_model_str}{model_ok} {both_ok}")
 
         # Create a temporary wrapper for consensus detection
         class AgentWrapper:
