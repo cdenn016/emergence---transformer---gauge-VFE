@@ -247,6 +247,77 @@ def ouroboros_config() -> SimulationConfig:
     )
 
 
+def deep_emergence_experiment() -> SimulationConfig:
+    """
+    Large-scale meta-agent emergence experiment configuration.
+
+    Designed for studying deep hierarchical emergence across many scales.
+    Features:
+    - Aggressive emergence (consensus check every 2 steps)
+    - Up to 25 scales with 200 max agents
+    - Ouroboros Tower (5-level hyperprior propagation)
+    - Balanced energy weights (all λ=1, no bias)
+    - Extended evolution (500 steps or until limits hit)
+
+    Use for:
+    - Multi-scale hierarchy formation studies
+    - Information flow across deep hierarchies
+    - Ouroboros self-reference dynamics
+    - Emergent complexity scaling laws
+    """
+    return SimulationConfig(
+        # Experiment metadata
+        experiment_name="_deep_emergence",
+        experiment_description="Deep multi-scale emergence with Ouroboros Tower",
+        seed=2,
+
+        # Extended evolution with safety limits
+        n_steps=500,
+        log_every=1,
+        stop_if_n_scales_reached=25,
+        stop_if_max_active_agents=200,
+
+        # Initial population
+        n_agents=8,
+        K_latent=13,
+        D_x=5,
+
+        # Aggressive emergence dynamics
+        enable_emergence=True,
+        consensus_threshold=0.05,
+        consensus_check_interval=2,  # Rapid consensus checks
+        min_cluster_size=2,
+        max_scale=20,
+        max_meta_membership=10,
+        max_total_agents=1000,
+
+        # Ouroboros Tower: Multi-level self-reference
+        enable_cross_scale_priors=True,
+        enable_hyperprior_tower=True,
+        max_hyperprior_depth=5,
+        hyperprior_decay=0.5,
+
+        # Balanced energy landscape (no hierarchical bias)
+        lambda_self=1.0,
+        lambda_belief_align=1.0,
+        lambda_prior_align=1.0,
+        lambda_obs=1.0,
+        lambda_phi=1.0,
+
+        # Moderate learning rates for stability
+        lr_mu_q=0.05,
+        lr_sigma_q=0.0075,
+        lr_mu_p=0.02,
+        lr_sigma_p=0.0075,
+        lr_phi=0.1,
+
+        # Comprehensive visualization
+        generate_meta_visualizations=True,
+        snapshot_interval=1,  # Dense snapshots for detailed analysis
+        save_diagnostic_plots=True,
+    )
+
+
 def flat_agents_config() -> SimulationConfig:
     """Configuration for flat multi-agent system (no emergence)."""
     return SimulationConfig(
