@@ -409,7 +409,7 @@ class HierarchicalAgent(Agent):
         print(f"  len(transported_beliefs) = {len(transported_beliefs)}")
 
         for idx, ((mu, Sigma), w) in enumerate(zip(transported_beliefs, weights)):
-            print(f"  Iteration {idx}: mu.shape={mu.shape}, w={w:.6f}")
+            print(f"  Iteration {idx}: mu type={type(mu).__name__}, mu.shape={getattr(mu, 'shape', 'NO SHAPE')}, w={float(w):.6f}")
             mu_p_new += w * mu
             Sigma_p_new += w * Sigma
 
