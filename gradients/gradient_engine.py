@@ -577,10 +577,19 @@ def compute_belief_alignment_gradients(
             grad_phi=np.zeros((*spatial_shape, 3), dtype=np.float32)
         )
     
-    # Compute softmax weights β_ij(c)
-    beta_fields = compute_softmax_weights(
-        system, agent_idx_i, mode='belief', kappa=system.config.kappa_beta
-    )
+    # Use cached attention weights if available (from transformer attention layer)
+    # This ensures coherent information flow: attention selects context, FFN refines beliefs
+    if hasattr(system, '_beta_cache') and system._beta_cache is not None:
+        # Use precomputed β from attention layer (transformer mode)
+        # _beta_cache is (N, N) array with β_ij weights for all pairs
+        beta_fields = {}
+        for j in neighbors:
+            beta_fields[j] = system._beta_cache[agent_idx_i, j]
+    else:
+        # Compute softmax weights β_ij(c) from scratch (standalone mode)
+        beta_fields = compute_softmax_weights(
+            system, agent_idx_i, mode='belief', kappa=system.config.kappa_beta
+        )
     
     # Process each neighbor
     for j in neighbors:
