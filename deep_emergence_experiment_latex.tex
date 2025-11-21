@@ -73,7 +73,7 @@ Consensus checks occur every 2 steps (compared to 5 in standard configurations),
 The 5-level hyperprior propagation implements Wheeler's ``it from bit'' concept extended to hierarchical systems. Each agent receives priors not only from its immediate parent meta-agent, but from ancestors up to 5 scales higher, with exponential decay $\gamma = 0.5$ to weight more recent ancestry.
 
 \paragraph{Balanced Energy Landscape.}
-All energy weights are set to unity ($\lambda_{\text{self}} = \lambda_{\text{belief}} = \lambda_{\text{prior}} = 1.0$), creating an unbiased energy landscape. This allows the system to explore the natural balance between individual identity preservation (self-energy), lateral social coordination (belief alignment), and vertical hierarchical integration (prior alignment).
+All energy weights are set to unity ($\lambda_{\text{self}} = \lambda_{\text{belief}} = \lambda_{\text{prior}} = \lambda_{\text{obs}} = 1.0$), creating an unbiased energy landscape. This allows the system to explore the natural balance between individual identity preservation (self-energy), lateral social coordination (belief alignment), vertical hierarchical integration (prior alignment), and empirical grounding (observation fit). The absence of hierarchical bias enables observation of emergent dynamics without imposed preferences.
 
 \paragraph{Safety Constraints.}
 Early stopping conditions prevent computational runaway: evolution terminates upon reaching either 25 scales or 200 total active agents. These limits ensure tractable computation while allowing sufficient depth to observe multi-scale emergence dynamics.
@@ -112,12 +112,12 @@ Hyperprior decay $\gamma$ & 0.5 & Stop at scales & 25 \\
 Simulations were initialized with $N_0 = 8$ agents in a $K=13$ dimensional latent space, each maintaining beliefs $q_i(c)$ and priors $p_i(c)$ as Gaussian distributions over the concept space $\mathcal{C}$. At each time step, agents updated their beliefs via natural gradient descent on the total free energy:
 %
 \begin{equation}
-F_{\text{total}} = \sum_i \left[ \lambda_{\text{self}} F_{\text{self}}^{(i)} + \lambda_{\text{belief}} F_{\text{belief}}^{(i)} + \lambda_{\text{prior}} F_{\text{prior}}^{(i)} \right]
+F_{\text{total}} = \sum_i \left[ \lambda_{\text{self}} F_{\text{self}}^{(i)} + \lambda_{\text{belief}} F_{\text{belief}}^{(i)} + \lambda_{\text{prior}} F_{\text{prior}}^{(i)} + \lambda_{\text{obs}} F_{\text{obs}}^{(i)} \right]
 \end{equation}
 %
-where $F_{\text{self}}^{(i)} = \text{KL}(q_i \| p_i)$ measures intrinsic energy, $F_{\text{belief}}^{(i)}$ measures lateral alignment with neighbors, and $F_{\text{prior}}^{(i)}$ measures vertical alignment with parent meta-agents.
+where $F_{\text{self}}^{(i)} = \text{KL}(q_i \| p_i)$ measures intrinsic energy, $F_{\text{belief}}^{(i)}$ measures lateral alignment with neighbors, $F_{\text{prior}}^{(i)}$ measures vertical alignment with parent meta-agents, and $F_{\text{obs}}^{(i)}$ measures fit to external observations. With all energy weights set to unity ($\lambda_{\text{self}} = \lambda_{\text{belief}} = \lambda_{\text{prior}} = \lambda_{\text{obs}} = 1.0$), the system balances individual identity, social coordination, hierarchical integration, and empirical grounding without imposed bias.
 
-Every 2 steps, the system checked for epistemic consensus by computing pairwise KL divergences $\text{KL}(q_i \| q_j)$ between all agents at each scale. When a cluster of agents satisfied $\text{KL}(q_i \| q_j) < \tau_{\text{KL}} = 0.05$, they underwent \textit{epistemic death} and condensed into a meta-agent at the next scale, which inherited a Gaussian prior synthesized from the cluster's belief distribution.
+Every 2 steps, the system checked for epistemic consensus by computing gauge-invariant KL divergences $\text{KL}(q_i \| \Omega_{ij}[q_j])$ and $\text{KL}(p_i \| \Omega_{ij}[p_j])$ between all agents at each scale, where $\Omega_{ij} = \exp(\phi_i) \exp(-\phi_j)$ is the gauge transport operator. When a cluster of agents achieved both belief consensus ($\text{KL}(q_i \| \Omega_{ij}[q_j]) < \tau_{\text{KL}} = 0.05$) and model consensus ($\text{KL}(p_i \| \Omega_{ij}[p_j]) < \tau_{\text{KL}}$), they underwent \textit{epistemic death} and condensed into a meta-agent at the next scale, which inherited a Gaussian prior synthesized from the cluster's belief distribution. This gauge-invariant consensus detection ensures that agents are truly aligned in their intrinsic beliefs, not merely appearing similar due to different gauge choices.
 
 The Ouroboros Tower mechanism propagated priors down from ancestors up to 5 scales higher, weighted by exponential decay $\gamma^{\Delta\zeta}$ where $\Delta\zeta$ is the scale distance. This implements multi-level self-reference, allowing agents to be influenced by the emergent structure of the hierarchy itself.
 
