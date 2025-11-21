@@ -1393,14 +1393,22 @@ class MultiScaleSystem:
 
                 try:
                     kl_belief = kl_gaussian(agent_i.mu_q, agent_i.Sigma_q, mu_q_j_t, Sigma_q_j_t)
-                    belief_ok = "✓" if kl_belief < kl_threshold else "✗"
+
+                    # Handle spatial manifolds: kl_belief may be array (*spatial,)
+                    if np.ndim(kl_belief) > 0:
+                        kl_belief_max = np.max(kl_belief)  # Strictest criterion
+                        kl_belief_mean = np.mean(kl_belief)  # For reporting
+                        belief_ok = "✓" if kl_belief_max < kl_threshold else "✗"
+                    else:
+                        kl_belief_mean = float(kl_belief)
+                        belief_ok = "✓" if kl_belief < kl_threshold else "✗"
                 except:
-                    kl_belief = float('inf')
+                    kl_belief_mean = float('inf')
                     belief_ok = "✗"
 
                 if identical_priors:
                     # Skip model check - priors are identical by construction
-                    print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok}")
+                    print(f"      {i}↔{j}: belief={kl_belief_mean:.6f}{belief_ok}")
                 else:
                     # Check MODEL consensus
                     # For spatial: use einsum for proper broadcasting
@@ -1417,14 +1425,22 @@ class MultiScaleSystem:
 
                     try:
                         kl_model = kl_gaussian(agent_i.mu_p, agent_i.Sigma_p, mu_p_j_t, Sigma_p_j_t)
-                        model_ok = "✓" if kl_model < kl_threshold else "✗"
+
+                        # Handle spatial manifolds: kl_model may be array (*spatial,)
+                        if np.ndim(kl_model) > 0:
+                            kl_model_max = np.max(kl_model)  # Strictest criterion
+                            kl_model_mean = np.mean(kl_model)  # For reporting
+                            model_ok = "✓" if kl_model_max < kl_threshold else "✗"
+                        else:
+                            kl_model_mean = float(kl_model)
+                            model_ok = "✓" if kl_model < kl_threshold else "✗"
                     except:
-                        kl_model = float('inf')
+                        kl_model_mean = float('inf')
                         model_ok = "✗"
 
                     # Epistemic death = BOTH consensus
                     both_ok = "✓✓" if (belief_ok == "✓" and model_ok == "✓") else "✗✗"
-                    print(f"      {i}↔{j}: belief={kl_belief:.6f}{belief_ok} model={kl_model:.6f}{model_ok} {both_ok}")
+                    print(f"      {i}↔{j}: belief={kl_belief_mean:.6f}{belief_ok} model={kl_model_mean:.6f}{model_ok} {both_ok}")
 
         # Create a temporary wrapper for consensus detection
         class AgentWrapper:
