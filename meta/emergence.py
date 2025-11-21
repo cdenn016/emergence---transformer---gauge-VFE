@@ -282,6 +282,12 @@ class HierarchicalAgent(Agent):
         Args:
             system: MultiScaleSystem containing all agents
         """
+        print(f"\n[DEBUG] update_prior_from_global_state called for {self.agent_id}")
+        print(f"  self.mu_q.shape = {self.mu_q.shape}")
+        print(f"  self.Sigma_q.shape = {self.Sigma_q.shape}")
+        print(f"  self.K = {self.K}")
+        print(f"  self.base_manifold.shape = {self.base_manifold.shape}")
+
         if self.parent_meta is not None:
             return  # Only for top-scale agents
 
