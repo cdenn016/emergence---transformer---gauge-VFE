@@ -111,7 +111,7 @@ class ConsensusDetector:
             agent_i.mu_q, agent_i.Sigma_q,
             mu_j_transported, Sigma_j_transported
         )
-        
+
         if self.use_symmetric_kl:
             # Jeffrey divergence: (KL(i||j) + KL(j||i)) / 2
             kl_div_reverse = kl_gaussian(
@@ -119,9 +119,19 @@ class ConsensusDetector:
                 agent_i.mu_q, agent_i.Sigma_q
             )
             kl_div = (kl_div + kl_div_reverse) / 2
-        
-        consensus = kl_div < self.belief_threshold
-        return consensus, float(kl_div)
+
+        # Handle spatial manifolds: kl_div may be array (*spatial,)
+        # For consensus, use MAXIMUM KL over all spatial points (strictest criterion)
+        # This ensures agents agree EVERYWHERE, not just on average
+        if np.ndim(kl_div) > 0:
+            kl_div_max = np.max(kl_div)  # Strictest: must agree everywhere
+            kl_div_scalar = float(np.mean(kl_div))  # Return average for monitoring
+            consensus = kl_div_max < self.belief_threshold
+        else:
+            kl_div_scalar = float(kl_div)
+            consensus = kl_div < self.belief_threshold
+
+        return consensus, kl_div_scalar
     
     def check_model_consensus(self,
                              agent_i, agent_j,
@@ -149,16 +159,25 @@ class ConsensusDetector:
             agent_i.mu_p, agent_i.Sigma_p,
             mu_j_transported, Sigma_j_transported
         )
-        
+
         if self.use_symmetric_kl:
             kl_div_reverse = kl_gaussian(
                 mu_j_transported, Sigma_j_transported,
                 agent_i.mu_p, agent_i.Sigma_p
             )
             kl_div = (kl_div + kl_div_reverse) / 2
-        
-        consensus = kl_div < self.model_threshold
-        return consensus, float(kl_div)
+
+        # Handle spatial manifolds: kl_div may be array (*spatial,)
+        # For consensus, use MAXIMUM KL over all spatial points (strictest criterion)
+        if np.ndim(kl_div) > 0:
+            kl_div_max = np.max(kl_div)  # Strictest: must agree everywhere
+            kl_div_scalar = float(np.mean(kl_div))  # Return average for monitoring
+            consensus = kl_div_max < self.model_threshold
+        else:
+            kl_div_scalar = float(kl_div)
+            consensus = kl_div < self.model_threshold
+
+        return consensus, kl_div_scalar
     
     def check_full_consensus(self,
                             agent_i, agent_j) -> ConsensusState:
