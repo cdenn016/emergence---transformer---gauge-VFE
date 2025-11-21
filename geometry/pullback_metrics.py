@@ -286,28 +286,19 @@ class InducedMetric:
         # Sort in descending order
         idx = np.argsort(eigvals, axis=-1)[..., ::-1]
 
-        # Gather sorted eigenvalues and eigenvectors
-        # Advanced indexing for arbitrary batch dimensions
-        batch_shape = eigvals.shape[:-1]
-        batch_indices = np.meshgrid(
-            *[np.arange(s) for s in batch_shape],
-            indexing='ij'
-        )
+        # Gather sorted eigenvalues using take_along_axis
+        self.eigenvalues = np.take_along_axis(eigvals, idx, axis=-1)
 
-        self.eigenvalues = eigvals[(*batch_indices, idx)]
-
-        # For eigenvectors, need to handle the extra dimension
+        # For eigenvectors, we need to reorder columns
         # eigvecs has shape (..., n_dims, n_dims)
         # idx has shape (..., n_dims)
-        # We want eigvecs[..., :, idx[i]] for each i
-        idx_expanded = idx[..., None, :]
-        batch_indices_vec = [b[..., None] for b in batch_indices]
+        # We want eigvecs[..., :, idx[..., j]] for each j
 
-        self.eigenvectors = np.take_along_axis(
-            eigvecs,
-            idx_expanded,
-            axis=-1
-        )
+        # Expand idx to match eigenvectors shape for indexing columns
+        idx_expanded = idx[..., None, :]  # (..., 1, n_dims)
+
+        # Use take_along_axis on the last axis (columns)
+        self.eigenvectors = np.take_along_axis(eigvecs, idx_expanded, axis=-1)
 
     def get_observable_sector(
         self,
