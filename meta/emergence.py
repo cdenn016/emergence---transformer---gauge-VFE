@@ -404,7 +404,12 @@ class HierarchicalAgent(Agent):
         mu_p_new = np.zeros_like(self.mu_q)
         Sigma_p_new = np.zeros_like(self.Sigma_q)
 
-        for (mu, Sigma), w in zip(transported_beliefs, weights):
+        print(f"  Initialized mu_p_new.shape = {mu_p_new.shape}")
+        print(f"  Initialized Sigma_p_new.shape = {Sigma_p_new.shape}")
+        print(f"  len(transported_beliefs) = {len(transported_beliefs)}")
+
+        for idx, ((mu, Sigma), w) in enumerate(zip(transported_beliefs, weights)):
+            print(f"  Iteration {idx}: mu.shape={mu.shape}, w={w:.6f}")
             mu_p_new += w * mu
             Sigma_p_new += w * Sigma
 
