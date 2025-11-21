@@ -200,14 +200,30 @@ def example_3_agent_metrics():
         np.sin(2*x),
         np.cos(2*x),
         0.5 * np.sin(x)
-    ], axis=-1)
+    ], axis=-1).astype(np.float32)
+
+    # Belief covariance (constant across space for simplicity)
+    Sigma_q = np.repeat(
+        (0.5**2 * np.eye(3))[None, :, :],
+        64,
+        axis=0
+    ).astype(np.float32)
+    agent.Sigma_q = Sigma_q  # Setter will convert to Cholesky internally
 
     # Prior: smoother, reflecting long-term structure
     agent.mu_p = np.stack([
         np.sin(x),
         np.cos(x),
         np.zeros(64)
-    ], axis=-1)
+    ], axis=-1).astype(np.float32)
+
+    # Prior covariance (slightly larger uncertainty)
+    Sigma_p = np.repeat(
+        (0.8**2 * np.eye(3))[None, :, :],
+        64,
+        axis=0
+    ).astype(np.float32)
+    agent.Sigma_p = Sigma_p  # Setter will convert to Cholesky internally
 
     # Compute both induced metrics
     G_belief, G_prior = agent_induced_metrics(
@@ -273,13 +289,22 @@ def example_4_eigenvalue_sectors():
     X, Y = np.meshgrid(x, y)
 
     # Initialize mu_p with structure in first 3 dimensions only
-    mu_p = np.zeros((H, W, 10))
+    mu_p = np.zeros((H, W, 10), dtype=np.float32)
     mu_p[..., 0] = np.sin(X) * np.cos(Y)  # Active
     mu_p[..., 1] = np.cos(X) * np.sin(Y)  # Active
     mu_p[..., 2] = 0.5 * np.sin(2*X)       # Active
     # Dimensions 3-9: inactive (zero gradient)
 
     agent.mu_p = mu_p
+
+    # Prior covariance (constant, isotropic)
+    Sigma_p = np.repeat(
+        np.eye(10)[None, None, :, :],
+        H,
+        axis=0
+    )
+    Sigma_p = np.repeat(Sigma_p, W, axis=1).astype(np.float32)
+    agent.Sigma_p = Sigma_p  # Setter will convert to Cholesky internally
 
     # Compute prior-induced metric
     _, G_prior = agent_induced_metrics(
@@ -367,7 +392,15 @@ def example_5_consensus_metrics():
             np.sin(x + phase),
             np.cos(x + phase),
             0.5 * np.sin(2*x + phase)
-        ], axis=-1)
+        ], axis=-1).astype(np.float32)
+
+        # Each agent has same covariance structure
+        Sigma_p = np.repeat(
+            (0.6**2 * np.eye(3))[None, :, :],
+            32,
+            axis=0
+        ).astype(np.float32)
+        agent.Sigma_p = Sigma_p
 
     print(f"\nComputing consensus from {n_agents} agents...")
 

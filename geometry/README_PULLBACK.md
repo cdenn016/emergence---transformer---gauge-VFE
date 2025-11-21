@@ -263,6 +263,32 @@ Gauge invariance in physics may arise as a **consistency requirement for multi-a
 
 ## Implementation Notes
 
+### Gauge Invariance and Covariance Representation
+
+**CRITICAL**: The pullback geometry tools use **full covariance matrices** `Σ`, NOT Cholesky factors `L`.
+
+**Why this matters**:
+- Under gauge transformation `Ω ∈ SO(K)`:
+  - Covariance: `Σ' = Ω Σ Ω^T` ✓ (transforms covariantly)
+  - Cholesky: `L' ≠ Ω L` ✗ (breaks gauge structure!)
+
+**Agent internal representation**:
+- Agents store `L_q`, `L_p` (Cholesky factors) for numerical stability
+- Properties `agent.Sigma_q`, `agent.Sigma_p` compute full covariance: `Σ = L L^T`
+- **Pullback metrics use `agent.Sigma_q` and `agent.Sigma_p` (gauge-invariant)**
+
+**When initializing agents for pullback geometry**:
+```python
+# ✓ CORRECT: Set Sigma (setter converts to Cholesky internally)
+agent.Sigma_q = np.eye(K)
+agent.Sigma_p = np.eye(K)
+
+# ✗ WRONG: Directly set Cholesky (not gauge-invariant!)
+agent.L_q = np.eye(K)  # Don't do this!
+```
+
+The `Sigma_q` and `Sigma_p` setters automatically convert to Cholesky factors for internal storage, ensuring both gauge invariance (via Σ) and numerical stability (via L).
+
 ### Computational Efficiency
 
 1. **Isotropic optimization**: Use `pullback_metric_gaussian_isotropic()` when `Σ(c) = σ²I`
