@@ -769,11 +769,19 @@ class MultiScaleSystem:
                     
                     # Combined weight: presence × coherence
                     w_i = chi_i * coherence_scores[i]
-                    
+
                     # Transport and accumulate
+                    # For spatial: omega has shape (*spatial, K, K), need omega[c_idx]
                     omega = transports[i]
-                    mu_weighted += w_i * (omega @ agent.mu_q[c_idx])
-                    Sigma_weighted += w_i * (omega @ agent.Sigma_q[c_idx] @ omega.T)
+                    if omega.ndim > 2:
+                        # Spatial case: extract transport at this location
+                        omega_c = omega[c_idx]
+                        mu_weighted += w_i * (omega_c @ agent.mu_q[c_idx])
+                        Sigma_weighted += w_i * (omega_c @ agent.Sigma_q[c_idx] @ omega_c.T)
+                    else:
+                        # Point manifold case
+                        mu_weighted += w_i * (omega @ agent.mu_q[c_idx])
+                        Sigma_weighted += w_i * (omega @ agent.Sigma_q[c_idx] @ omega.T)
                     total_weight += w_i
                 
                 # Normalize
@@ -857,9 +865,15 @@ class MultiScaleSystem:
                     
                     w_i = chi_i * coherence_scores[i]
                     omega = transports[i]
-                    
-                    mu_weighted += w_i * (omega @ agent.mu_p[c_idx])
-                    Sigma_weighted += w_i * (omega @ agent.Sigma_p[c_idx] @ omega.T)
+
+                    # For spatial: extract transport at this location
+                    if omega.ndim > 2:
+                        omega_c = omega[c_idx]
+                        mu_weighted += w_i * (omega_c @ agent.mu_p[c_idx])
+                        Sigma_weighted += w_i * (omega_c @ agent.Sigma_p[c_idx] @ omega_c.T)
+                    else:
+                        mu_weighted += w_i * (omega @ agent.mu_p[c_idx])
+                        Sigma_weighted += w_i * (omega @ agent.Sigma_p[c_idx] @ omega.T)
                     total_weight += w_i
                 
                 if total_weight > 1e-6:
@@ -1373,6 +1387,10 @@ class MultiScaleSystem:
                     mu_q_j_t = omega_ij @ agent_j.mu_q
                     Sigma_q_j_t = omega_ij @ agent_j.Sigma_q @ omega_ij.T
 
+                # Sanitize transported covariance (gauge transformations can introduce numerical errors)
+                from math_utils.numerical_utils import sanitize_sigma
+                Sigma_q_j_t = sanitize_sigma(Sigma_q_j_t, eps=1e-6)
+
                 try:
                     kl_belief = kl_gaussian(agent_i.mu_q, agent_i.Sigma_q, mu_q_j_t, Sigma_q_j_t)
                     belief_ok = "✓" if kl_belief < kl_threshold else "✗"
@@ -1393,6 +1411,9 @@ class MultiScaleSystem:
                         # Point manifold case
                         mu_p_j_t = omega_ij @ agent_j.mu_p
                         Sigma_p_j_t = omega_ij @ agent_j.Sigma_p @ omega_ij.T
+
+                    # Sanitize transported covariance
+                    Sigma_p_j_t = sanitize_sigma(Sigma_p_j_t, eps=1e-6)
 
                     try:
                         kl_model = kl_gaussian(agent_i.mu_p, agent_i.Sigma_p, mu_p_j_t, Sigma_p_j_t)
