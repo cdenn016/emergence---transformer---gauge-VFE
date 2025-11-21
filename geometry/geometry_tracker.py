@@ -249,7 +249,7 @@ class GeometryTracker:
                     gauge_average=self.enable_gauge_averaging,
                     n_samples_gauge=self.gauge_samples,
                     dx=self.dx,
-                    weights=None  # Uniform weights
+                    weight_function=None  # Uniform weights
                 )
 
                 snapshot.consensus_prior = compute_consensus_metric(
@@ -258,7 +258,7 @@ class GeometryTracker:
                     gauge_average=self.enable_gauge_averaging,
                     n_samples_gauge=self.gauge_samples,
                     dx=self.dx,
-                    weights=None
+                    weight_function=None  # Uniform weights
                 )
             except Exception as e:
                 print(f"  ⚠️  Warning: Failed to compute consensus metrics: {e}")
