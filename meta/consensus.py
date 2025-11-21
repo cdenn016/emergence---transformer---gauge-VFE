@@ -112,6 +112,11 @@ class ConsensusDetector:
             # Point manifold case
             mu_j_transported = omega_ij @ agent_j.mu_q
             Sigma_j_transported = omega_ij @ agent_j.Sigma_q @ omega_ij.T
+
+        # Sanitize transported covariance to ensure positive-definiteness
+        # Gauge transformations can introduce small numerical errors
+        from math_utils.numerical_utils import sanitize_sigma
+        Sigma_j_transported = sanitize_sigma(Sigma_j_transported, eps=1e-6)
         
         # Compute KL divergence
         kl_div = kl_gaussian(
@@ -166,6 +171,10 @@ class ConsensusDetector:
             # Point manifold case
             mu_j_transported = omega_ij @ agent_j.mu_p
             Sigma_j_transported = omega_ij @ agent_j.Sigma_p @ omega_ij.T
+
+        # Sanitize transported covariance to ensure positive-definiteness
+        from math_utils.numerical_utils import sanitize_sigma
+        Sigma_j_transported = sanitize_sigma(Sigma_j_transported, eps=1e-6)
         
         # Compute KL divergence
         kl_div = kl_gaussian(

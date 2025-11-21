@@ -466,6 +466,27 @@ def _run_hierarchical_training(system, cfg, output_dir):
         # Record initial geometry
         geometry_tracker.record(0, base_agents)
 
+    # Initialize agent field visualizer if enabled
+    field_visualizer = None
+    if cfg.visualize_agent_fields:
+        from meta.agent_field_visualizer import AgentFieldVisualizer
+
+        print("\n  Initializing Agent Field Visualizer...")
+        print(f"    Track interval: every {cfg.viz_track_interval} steps")
+        print(f"    Scales to image: {cfg.viz_scales}")
+        print(f"    Fields to track: {cfg.viz_fields}")
+
+        field_visualizer = AgentFieldVisualizer(
+            output_dir=output_dir / "agent_fields",
+            scales_to_track=list(cfg.viz_scales),
+            fields_to_track=list(cfg.viz_fields),
+            latent_components=list(cfg.viz_latent_components) if cfg.viz_latent_components else None,
+            track_interval=cfg.viz_track_interval
+        )
+
+        # Record initial state
+        field_visualizer.record(0, system)
+
     # Initialize comprehensive visualization tools
     analyzer = None
     diagnostics = None
@@ -520,6 +541,10 @@ def _run_hierarchical_training(system, cfg, output_dir):
         if geometry_tracker is not None and geometry_tracker.should_record(step + 1):
             base_agents = system.agents[0]  # Track base agents only
             geometry_tracker.record(step + 1, base_agents)
+
+        # Record agent fields if tracking enabled
+        if field_visualizer is not None and field_visualizer.should_record(step + 1):
+            field_visualizer.record(step + 1, system)
 
         # Capture visualization snapshots
         if cfg.generate_meta_visualizations:
@@ -583,6 +608,11 @@ def _run_hierarchical_training(system, cfg, output_dir):
 
         from geometry.geometry_tracker import analyze_final_geometry
         analyze_final_geometry(geometry_tracker.history, save_dir=output_dir / "geometry_analysis")
+
+    # Generate agent field visualizations if tracked
+    if field_visualizer is not None:
+        print("\n  Generating agent field visualizations...")
+        field_visualizer.generate_summary_report()
 
     # Generate visualizations
     if cfg.generate_meta_visualizations and analyzer and diagnostics:

@@ -163,6 +163,15 @@ class SimulationConfig:
     geometry_lambda_obs: float = 0.1  # Observable sector threshold
     geometry_lambda_dark: float = 0.01  # Dark sector threshold
 
+    # =============================================================================
+    # Agent Field Visualization (2D Spatial Manifolds)
+    # =============================================================================
+    visualize_agent_fields: bool = False  # Enable field imaging on 2D grids
+    viz_track_interval: int = 10  # Record snapshots every N steps
+    viz_scales: Tuple[int, ...] = (0,)  # Which hierarchical scales to image
+    viz_fields: Tuple[str, ...] = ("mu_q", "phi")  # Fields: mu_q, Sigma_q, mu_p, Sigma_p, phi
+    viz_latent_components: Optional[Tuple[int, ...]] = None  # Which K components (None = all)
+
     def __post_init__(self):
         """Compute derived parameters."""
         # Compute gaussian_sigma from overlap_threshold
