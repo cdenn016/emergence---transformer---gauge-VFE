@@ -92,17 +92,51 @@ Comprehensive codebase consolidation to remove duplications, improve maintainabi
 
 ---
 
+### 4. Consolidated Transformer Training Modules (~460 lines removed)
+
+**Problem:**
+- Two separate trainer classes (`Trainer` and `FastTrainer`) with 80% code overlap
+- Two separate config classes with duplicated fields
+- Four FFN modes including 2 deprecated legacy modes
+- train_publication.py name didn't reflect general transformer training purpose
+
+**Action:**
+- ✅ Merged `Trainer` and `FastTrainer` into unified `Trainer` class
+- ✅ Added `use_param_groups` flag to switch between simple and multi-group optimization
+- ✅ Merged `TrainingConfig` and `FastTrainingConfig` into unified config
+- ✅ Removed deprecated `variational_approx` and `variational_full` FFN modes
+- ✅ Renamed `train_publication.py` → `train_transformer.py`
+- ✅ Created `FastTrainer` alias for backward compatibility
+
+**Impact:**
+- **-460 lines** of duplicated trainer code
+- **Unified optimization**: Single class supports both simple (2-group) and multi-group (6-group) modes
+- **Cleaner FFN modes**: Reduced from 4 to 2 (learned baseline + variational_gradient_engine)
+- **Better naming**: train_transformer.py reflects general purpose
+- **Backward compatible**: FastTrainer and FastTrainingConfig remain as aliases
+
+**Implementation:**
+- `Trainer._create_optimizer()` dispatches based on `config.use_param_groups`
+- Simple mode: Traditional 2-group (decay vs no-decay) with single learning rate
+- Multi-group mode: 6-group natural gradients (mu, sigma, phi, attention, ffn, output)
+- All training methods work seamlessly with both modes
+
+**Commit:** `bcd9ab9`
+
+---
+
 ## 📊 Consolidation Metrics
 
 ### Lines Changed
 ```
 simulation_suite.py deletion:              -1,345 lines
 _GradientSystemAdapter removal:              -100 lines
+Transformer trainer consolidation:           -460 lines
 Minor cleanups:                                 -8 lines
 Checkpointing addition (new feature):          +36 lines
                                            ─────────────
-NET REDUCTION:                             -1,417 lines
-TOTAL DELETIONS:                           -1,453 lines
+NET REDUCTION:                             -1,877 lines
+TOTAL DELETIONS:                           -1,913 lines
 ```
 
 ### Files Modified
@@ -110,6 +144,8 @@ TOTAL DELETIONS:                           -1,453 lines
 - ✅ `diagnose_detector.py` - Updated to use simulation_runner
 - ✅ `phase_transition_scanner.py` - Use imported GradientSystemAdapter
 - ✅ `meta/hierarchical_evolution.py` - Added checkpointing support
+- ✅ `transformer/train.py` - Consolidated Trainer and FastTrainer classes
+- ✅ `transformer/train_transformer.py` - Renamed from train_publication.py, removed deprecated FFN modes
 - ❌ `simulation_suite.py` - **DELETED**
 
 ---
@@ -168,26 +204,21 @@ analysis/
 
 ---
 
-#### 2. **Consolidate Transformer Trainers** (`transformer/train.py`)
+#### 2. **Consolidate Transformer Trainers** ✅ **DONE**
 
-**Current State:**
-- Two trainer classes: `Trainer` (lines 365-685) and `FastTrainer` (lines 686-1145)
-- 80% code overlap between the two
-- Main difference: parameter grouping strategy (simple vs. multi-group)
+**Status:** ✅ **COMPLETED**
 
-**Dependencies:**
-- `train_publication.py` uses `FastTrainer`
-- Need to ensure backward compatibility
+**Implementation:**
+- Merged `Trainer` and `FastTrainer` into unified class
+- Added `use_param_groups` flag to `TrainingConfig`
+- Supports both simple (2-group) and multi-group (6-group) optimization
+- `FastTrainer` now an alias for backward compatibility
+- Removed deprecated FFN modes (variational_approx, variational_full)
+- Renamed train_publication.py → train_transformer.py
 
-**Proposed Solution:**
-1. Create unified `Trainer` class with configurable parameter grouping
-2. Support both simple (2-group) and advanced (6-group) modes via config
-3. Deprecate `FastTrainer` as alias to `Trainer` for compatibility
+**Actual Savings:** 460 lines
 
-**Expected Savings:** ~300-400 lines
-
-**Effort:** Medium-High (1 week)
-**Risk:** Medium (active development area, has dependencies)
+**Commit:** `bcd9ab9`
 
 ---
 
@@ -310,17 +341,14 @@ These modules serve as **reference examples** of good structure:
 1. ✅ **DONE:** Remove `simulation_suite.py`
 2. ✅ **DONE:** Remove duplicate `_GradientSystemAdapter`
 3. ✅ **DONE:** Add checkpointing to `hierarchical_evolution.py`
-4. ⏭️ **NEXT:** Break up `analysis_suite.py` into modular structure
+4. ✅ **DONE:** Consolidate transformer trainers
+5. ⏭️ **NEXT:** Break up `analysis_suite.py` into modular structure
 
 ### Short-Term (Next 2 Weeks)
-5. Create unified `VisualizationManager`
-6. Document configuration usage guidelines
-7. Clean up top-level directory organization
-
-### Medium-Term (Next Month)
-7. Consolidate transformer trainers
-8. Review and refactor `phase_transition_scanner.py`
-9. Clean up top-level directory (move scripts to scripts/ folder?)
+6. Create unified `VisualizationManager`
+7. Document configuration usage guidelines
+8. Clean up top-level directory organization
+9. Review and refactor `phase_transition_scanner.py`
 
 ---
 
@@ -349,12 +377,14 @@ These modules serve as **reference examples** of good structure:
 ## 🎉 Summary
 
 ### Achievements
-- **Removed 1,453 lines** of duplicated code (10% reduction)
+- **Removed 1,913 lines** of duplicated code (13% reduction)
 - **Added checkpointing** to hierarchical evolution (feature parity)
-- **Eliminated confusion** about which runner to use
+- **Consolidated transformer training** (unified Trainer class)
+- **Eliminated confusion** about which runner/trainer to use
 - **Improved maintainability** with single source of truth
 - **Modernized patterns** (dataclasses, proper extraction)
-- **Identified roadmap** for 2,000+ additional line reduction
+- **Cleaned up FFN modes** (removed deprecated legacy modes)
+- **Identified roadmap** for 1,500+ additional line reduction
 
 ### Impact
 This consolidation effort has:
@@ -390,9 +420,12 @@ The analysis has identified **~2,000 additional lines** that can be consolidated
 - **Current PR:** Consolidate codebase (#[TBD])
   - Removes simulation_suite.py (1,345 lines)
   - Removes duplicate GradientSystemAdapter (100 lines)
+  - Consolidates transformer trainers (460 lines)
   - Adds checkpointing to hierarchical evolution
+  - Removes deprecated FFN modes
+  - Renames train_publication.py → train_transformer.py
   - Branch: `claude/consolidate-codebase-01BC8yBpy61PTKaaaot5irxU`
-  - Commits: `625691f`, `18123ca`, `03b1543`, `2909cd4`
+  - Commits: `625691f`, `18123ca`, `03b1543`, `2909cd4`, `5cf6b91`, `bcd9ab9`
 
 ---
 

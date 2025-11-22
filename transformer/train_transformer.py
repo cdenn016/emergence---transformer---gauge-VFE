@@ -1,19 +1,17 @@
 """
-Publication Proof-of-Principle Training Script
-===============================================
+Transformer Training Script
+============================
 
-Character-level language modeling on WikiText-2 for minimal publishable claim.
+Character-level language modeling on WikiText-2 with gauge-theoretic transformer.
 
 Demonstrates:
 1. Variational FFN works - inference comparable to learned MLP
 2. Architecture is trainable - converges to reasonable performance
 3. Theoretical framework is sound - gauge-invariant inference holds
 
-Four FFN Modes for Ablation Study:
+FFN Modes:
     - learned: Standard MLP baseline
-    - variational_approx: First-order active inference (O(N²K), legacy)
-    - variational_full: Complete gauge-invariant with second-order terms (O(N³K), legacy)
-    - variational_gradient_engine: Full active inference via validated gradient_engine.py (RECOMMENDED!)
+    - variational_gradient_engine: Full active inference via gradient_engine.py (RECOMMENDED!)
 
 Comprehensive Metrics Tracking:
     - Free energy components (α, β, γ terms)
@@ -24,27 +22,27 @@ Comprehensive Metrics Tracking:
     - Performance (step time, tokens/sec)
 
 Output Files:
-    - checkpoints_publication/ffn_{mode}/metrics.csv - comprehensive training metrics
-    - checkpoints_publication/ffn_{mode}/best_model.pt - best model checkpoint
-    - checkpoints_publication/result_{mode}.json - final summary (if single mode)
-    - checkpoints_publication/ablation_results.json - comparison (if --run_ablation)
+    - checkpoints/ffn_{mode}/metrics.csv - comprehensive training metrics
+    - checkpoints/ffn_{mode}/best_model.pt - best model checkpoint
+    - checkpoints/result_{mode}.json - final summary (if single mode)
+    - checkpoints/ablation_results.json - comparison (if --run_ablation)
 
 Usage:
     # Just click Run (edit defaults below)
-    python transformer/train_publication.py
+    python transformer/train_transformer.py
 
     # Or use command-line args:
-    python transformer/train_publication.py --ffn_mode learned
+    python transformer/train_transformer.py --ffn_mode learned
 
-Author: Designed for minimal publishable claim
+Author: Chris
 Date: November 2025
 """
 
 # ============================================================================
 # EDIT THESE DEFAULTS TO RUN WITHOUT COMMAND-LINE ARGS
 # ============================================================================
-DEFAULT_FFN_MODE = 'learned'  # 'learned', 'variational_approx', 'variational_full', 'variational_gradient_engine', or None
-DEFAULT_RUN_ABLATION = False  # Set True to run all four modes
+DEFAULT_FFN_MODE = 'learned'  # 'learned' or 'variational_gradient_engine'
+DEFAULT_RUN_ABLATION = False  # Set True to run both modes
 DEFAULT_ENABLE_SIGMA_PHI = True  # Set True to enable learning Σ and φ (full geometric learning!)
 # ============================================================================
 
@@ -377,7 +375,7 @@ def run_single_experiment(
 
     Args:
         config: Configuration dictionary
-        ffn_mode: FFN mode ('learned', 'variational_approx', 'variational_full', 'variational_gradient_engine')
+        ffn_mode: FFN mode ('learned' or 'variational_gradient_engine')
         device: Device to train on
         checkpoint_dir: Directory to save checkpoints
         use_wandb: Whether to use Weights & Biases logging
@@ -590,17 +588,15 @@ def run_ablation_study(
 
     print("\nWill run:")
     print("  1. learned                   (baseline)")
-    print("  2. variational_approx        (first-order active inference, legacy)")
-    print("  3. variational_full          (complete gauge-invariant, legacy)")
-    print("  4. variational_gradient_engine (full active inference via gradient_engine.py) - RECOMMENDED!")
+    print("  2. variational_gradient_engine (full active inference via gradient_engine.py) - RECOMMENDED!")
     print("="*70)
 
-    modes = ['learned', 'variational_approx', 'variational_full', 'variational_gradient_engine']
+    modes = ['learned', 'variational_gradient_engine']
     results = []
 
     for i, mode in enumerate(modes):
         print(f"\n\n{'='*70}")
-        print(f"EXPERIMENT {i+1}/4: {mode}")
+        print(f"EXPERIMENT {i+1}/2: {mode}")
         print("="*70)
 
         config = PUBLICATION_CONFIG.copy()
@@ -672,7 +668,7 @@ def run_ablation_study(
 
     if learned_ppl is not None:
         for result in results:
-            if result['ffn_mode'] in ['variational_approx', 'variational_full', 'variational_gradient_engine']:
+            if result['ffn_mode'] == 'variational_gradient_engine':
                 mode = result['ffn_mode']
                 ppl = result['final_ppl']
                 diff_pct = ((ppl - learned_ppl) / learned_ppl) * 100
@@ -695,7 +691,7 @@ def main():
 
     # FFN mode (uses defaults from top of file)
     parser.add_argument('--ffn_mode', type=str, default=DEFAULT_FFN_MODE,
-                        choices=['learned', 'variational_approx', 'variational_full', 'variational_gradient_engine'],
+                        choices=['learned', 'variational_gradient_engine'],
                         help='FFN mode (or use --run_ablation for all four modes)')
 
     # Ablation study (uses defaults from top of file)
