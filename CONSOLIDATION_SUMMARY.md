@@ -165,48 +165,65 @@ Comprehensive codebase consolidation to remove duplications, improve maintainabi
 
 ---
 
-### 6. Completed Analysis Suite Modularization (+553 lines of new modules, -631 lines from analysis_suite.py)
+### 6. Completed Full Analysis Suite Modularization (+1,640 lines new modules, -1,484 lines from analysis_suite.py)
 
 **Problem:**
 - `analysis_suite.py` was monolithic (1,739 lines) with all plotting functions inline
+- Duplicate data loading functions (198 lines duplicated from analysis/core/loaders.py)
+- Advanced mu tracking plots mixed with orchestration code (~675 lines)
 - Duplicate helper functions (_get_spatial_shape_from_system, _pick_reference_agent)
 - No modular organization for different plot types
 - Difficult to reuse plotting functions in other contexts
 
 **Action:**
-- ✅ Created `analysis/plots/fields.py` (phi, sigma, mu field visualization - 456 lines)
-- ✅ Created `analysis/plots/support.py` (support masks and overlap matrix - 143 lines)
-- ✅ Created `analysis/plots/softmax.py` (softmax weight visualization - 154 lines)
+- ✅ Created `analysis/plots/fields.py` (phi, sigma, mu field visualization - 427 lines)
+- ✅ Created `analysis/plots/support.py` (support masks and overlap matrix - 170 lines)
+- ✅ Created `analysis/plots/softmax.py` (softmax weight visualization - 146 lines)
+- ✅ Enhanced `analysis/plots/mu_tracking.py` (basic + advanced mu plots - 791 lines total)
+- ✅ Removed 198 lines of duplicate data loading functions
+- ✅ Removed 675 lines of mu tracking plots (now in mu_tracking.py)
+- ✅ Removed 631 lines of field/support/softmax plots (now in dedicated modules)
 - ✅ Updated `analysis_suite.py` to import from modular structure
-- ✅ Removed 631 lines of duplicate plotting code from analysis_suite.py
 - ✅ Each module has its own helper functions (no shared mutable state)
 
 **Impact:**
-- **+553 lines** of new modular plotting infrastructure
-- **-631 lines** removed from monolithic analysis_suite.py
-- **Net change: -78 lines** (5% reduction in analysis code)
+- **+1,640 lines** of new modular plotting infrastructure (analysis/plots/*.py)
+- **-1,484 lines** removed from monolithic analysis_suite.py (**85% reduction!**)
+- **analysis_suite.py: 1,739 → 255 lines** (now just an orchestrator)
+- **Net change: +156 lines** (better organized code vs raw reduction)
 - **Better organization**: Clear separation of concerns
-- **Reusable modules**: Can import plotting functions independently
-- **Maintainable**: Each plot type in its own module
+- **Reusable modules**: Can import any plotting function independently
+- **Maintainable**: Each plot type in dedicated module
 - **Consistent API**: All plot functions follow same pattern
 
 **Module Breakdown:**
 ```
 analysis/plots/
-├── energy.py          #  91 lines - Energy component analysis
-├── mu_tracking.py     # 107 lines - Mu center tracking
-├── fields.py          # 456 lines - Spatial fields (phi, sigma, mu)
-├── support.py         # 143 lines - Support masks and overlap
-└── softmax.py         # 154 lines - Softmax weight visualization
+├── __init__.py        #  16 lines - Module exports
+├── energy.py          #  90 lines - Energy component analysis
+├── mu_tracking.py     # 791 lines - All mu tracking plots (basic + advanced)
+├── fields.py          # 427 lines - Spatial fields (phi, sigma, mu)
+├── support.py         # 170 lines - Support masks and overlap
+└── softmax.py         # 146 lines - Softmax weight visualization
+                       ─────────────
+                       1,640 lines total
 ```
 
-**Remaining in analysis_suite.py:**
-- Data loading functions (now also in analysis/core/loaders.py)
-- Advanced mu tracking plots (gauge orbits, phase space, etc. - ~670 lines)
-- Energy component plots (could be merged with analysis/plots/energy.py)
-- Main orchestration function
+**Advanced Mu Tracking Functions Extracted:**
+- plot_mu_norm_trajectories - Track belief mean norms over time
+- plot_mu_component_trajectories - Individual component evolution
+- plot_norm_variance_evolution - Symmetry breaking diagnostic
+- plot_mu_phase_space - Latent space exploration
+- plot_mu_summary_report - Comprehensive summary
+- plot_mu_gauge_orbit - Gauge orbit visualization on unit sphere
+- plot_mu_gauge_orbit_projections - 2D projections of gauge orbits
 
-**Commit:** `[To be added]`
+**Remaining in analysis_suite.py (255 lines):**
+- Energy component plots (plot_energy_components_separate - 116 lines, has unique features)
+- Main orchestration function (139 lines)
+- Clean imports from modular analysis package
+
+**Commits:** `658e684`, `[To be added]`
 
 ---
 
@@ -217,30 +234,32 @@ analysis/plots/
 simulation_suite.py deletion:              -1,345 lines
 _GradientSystemAdapter removal:              -100 lines
 Transformer trainer consolidation:           -460 lines
-Analysis suite modularization:               -631 lines
+Analysis suite modularization:             -1,484 lines (85% reduction!)
 Minor cleanups:                                 -8 lines
 Checkpointing addition (new feature):          +36 lines
 Analysis/viz infrastructure (new):            +887 lines
-Analysis plots modules (new):                 +553 lines
+Analysis plots modules (new):               +1,640 lines
                                            ─────────────
-NET CHANGE:                                -1,068 lines
-TOTAL DELETIONS:                           -2,544 lines
-TOTAL NEW INFRASTRUCTURE:                  +1,476 lines
+NET CHANGE:                                  -834 lines
+TOTAL DELETIONS:                           -3,397 lines
+TOTAL NEW INFRASTRUCTURE:                  +2,563 lines
 ```
 
 ### Files Modified/Created
-- ✅ `analysis_suite.py` - Reduced from 1,739 to 1,108 lines (-631), now imports from modular plots
+- ✅ `analysis_suite.py` - **Reduced from 1,739 to 255 lines** (-1,484 lines, -85%!)
 - ✅ `diagnose_detector.py` - Updated to use simulation_runner
 - ✅ `phase_transition_scanner.py` - Use imported GradientSystemAdapter
 - ✅ `meta/hierarchical_evolution.py` - Added checkpointing support
 - ✅ `transformer/train.py` - Consolidated Trainer and FastTrainer classes
 - ✅ `transformer/train_transformer.py` - Renamed from train_publication.py, removed deprecated FFN modes
+- ✅ `agent/trainer.py` - Fixed f-string syntax and parameter passing
 - ✅ `visualization_manager.py` - **NEW** unified visualization coordinator
 - ✅ `analysis/` - **NEW** modular analysis package (core + plots)
-- ✅ `analysis/plots/fields.py` - **NEW** spatial field visualization (phi, sigma, mu)
-- ✅ `analysis/plots/support.py` - **NEW** support masks and overlap visualization
-- ✅ `analysis/plots/softmax.py` - **NEW** softmax weight visualization
-- ❌ `simulation_suite.py` - **DELETED**
+- ✅ `analysis/plots/fields.py` - **NEW** spatial field visualization (427 lines)
+- ✅ `analysis/plots/support.py` - **NEW** support masks and overlap (170 lines)
+- ✅ `analysis/plots/softmax.py` - **NEW** softmax weight visualization (146 lines)
+- ✅ `analysis/plots/mu_tracking.py` - **ENHANCED** basic + advanced mu plots (791 lines)
+- ❌ `simulation_suite.py` - **DELETED** (1,345 lines)
 
 ---
 
@@ -458,14 +477,16 @@ These modules serve as **reference examples** of good structure:
 ## 🎉 Summary
 
 ### Achievements
-- **Removed 2,544 lines** of duplicated code
-- **Added 1,476 lines** of new modular infrastructure
-- **Net reduction: 1,068 lines** (8% smaller, but much better organized)
+- **Removed 3,397 lines** of duplicated code
+- **Added 2,563 lines** of new modular infrastructure
+- **Net reduction: 834 lines** (6% smaller, but **much better organized**)
+- **analysis_suite.py: 85% smaller** (1,739 → 255 lines, now just an orchestrator)
 - **Added checkpointing** to hierarchical evolution (feature parity)
 - **Consolidated transformer training** (unified Trainer class)
-- **Created modular analysis package** (core + plots)
+- **Created modular analysis package** (core + plots, 1,640 lines of reusable functions)
 - **Created unified VisualizationManager** (coordinates all viz modules)
-- **Completed analysis suite modularization** (fields, support, softmax plots extracted)
+- **Completed full analysis suite modularization** (all plotting functions extracted)
+- **Fixed trainer bugs** (f-string syntax, parameter passing)
 - **Eliminated confusion** about which runner/trainer to use
 - **Improved maintainability** with single source of truth
 - **Modernized patterns** (dataclasses, proper extraction, modular organization)
@@ -494,12 +515,12 @@ The analysis has identified **~2,000 additional lines** that can be consolidated
 
 | Metric | Before | After | Change |
 |--------|--------|-------|--------|
-| Total Lines (estimated) | ~14,000 | ~12,400 | **-11%** |
+| Total Lines (estimated) | ~14,000 | ~13,200 | **-6%** |
 | Top-Level Python Files | 11 | 10 | -1 |
 | Duplicate Classes | 3 | 1 | -2 |
 | Legacy Files | 1 | 0 | -1 |
-| Analysis Module Files | 1 | 7 | +6 |
-| analysis_suite.py | 1,739 | 1,108 | **-36%** |
+| Analysis Module Files | 1 | 8 | +7 |
+| analysis_suite.py | 1,739 | 255 | **-85%** |
 
 ---
 
@@ -509,15 +530,17 @@ The analysis has identified **~2,000 additional lines** that can be consolidated
   - Removes simulation_suite.py (1,345 lines)
   - Removes duplicate GradientSystemAdapter (100 lines)
   - Consolidates transformer trainers (460 lines)
-  - Completes analysis suite modularization (631 lines extracted)
+  - **Completes full analysis suite modularization (1,484 lines extracted, 85% reduction!)**
   - Adds checkpointing to hierarchical evolution (+36 lines)
   - Creates modular analysis package (+887 lines)
-  - Creates analysis plot modules (+553 lines)
+  - Creates analysis plot modules (+1,640 lines total)
+  - Enhances mu_tracking.py with advanced plots (791 lines)
   - Creates unified VisualizationManager
   - Removes deprecated FFN modes
   - Renames train_publication.py → train_transformer.py
+  - Fixes trainer bugs (f-string syntax, parameter passing)
   - Branch: `claude/consolidate-codebase-01BC8yBpy61PTKaaaot5irxU`
-  - Commits: `625691f`, `18123ca`, `03b1543`, `2909cd4`, `5cf6b91`, `bcd9ab9`, `3bf4be5`, `f9fbb42`, `[new commits to be added]`
+  - Commits: `625691f`, `18123ca`, `03b1543`, `2909cd4`, `5cf6b91`, `bcd9ab9`, `3bf4be5`, `f9fbb42`, `3edfa66`, `658e684`, `02429a3`, `[final commits to be added]`
 
 ---
 
