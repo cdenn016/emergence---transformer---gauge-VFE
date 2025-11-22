@@ -588,7 +588,8 @@ class Trainer:
                 targets,
                 alpha=self.config.alpha,
                 lambda_beta=self.config.lambda_beta,
-                gamma=self.config.gamma,
+                lambda_gamma=self.config.lambda_gamma,
+                kappa_gamma=self.config.kappa_gamma,
             )
 
             # Scale loss for gradient accumulation
