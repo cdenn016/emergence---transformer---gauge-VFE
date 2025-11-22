@@ -156,61 +156,184 @@ def compute_pullback_metric(
         metric: Pullback metric tensor g_αβ
     """
     # Get agent's belief parameters
-    mu_q = agent.mu_q
-    Sigma_q = agent.Sigma_q
-    phi = agent.phi
+    mu_q = agent.mu_q  # Shape: (*S, K) where S is spatial grid, K is latent dim
+    Sigma_q = agent.Sigma_q  # Shape: (*S, K, K)
+    phi = agent.phi if hasattr(agent, 'phi') else None  # Shape: (*S, 3) for SO(3)
 
-    # Determine point
+    # Get spatial structure
+    if mu_q.ndim == 1:
+        # Single point - no spatial variation, just return Fisher metric
+        K = len(mu_q)
+        try:
+            Sigma_inv = np.linalg.inv(Sigma_q)
+        except np.linalg.LinAlgError:
+            Sigma_inv = np.linalg.inv(Sigma_q + 1e-6 * np.eye(len(Sigma_q)))
+        return Sigma_inv  # Fisher metric g_μμ = Σ^{-1}
+
+    # Extract spatial dimensions
+    if mu_q.ndim == 2:
+        S, K = mu_q.shape
+        spatial_shape = (S,)
+    elif mu_q.ndim == 3:
+        H, W, K = mu_q.shape
+        spatial_shape = (H, W)
+        S = H * W
+    else:
+        raise ValueError(f"Unexpected mu_q shape: {mu_q.shape}")
+
+    # Determine point index
     if point_idx is None:
         # Use center of support
         if hasattr(agent, 'support') and agent.support is not None:
             point_idx = agent.support.center_idx
         else:
-            point_idx = 0
+            point_idx = S // 2  # Middle of grid
 
-    # Get dimensionality
-    K = mu_q.shape[-1]  # Latent dimension
-
-    # For now, return a placeholder metric
-    # TODO: Implement full pullback computation from Fisher metric
-
-    # Spatial metric component (simplified)
-    if mu_q.ndim > 1:
-        # Compute gradient of μ with respect to spatial coordinates
-        # This is approximate - full implementation needs proper covariant derivatives
-        spatial_dim = 2  # Assuming 2D base manifold
-        g_spatial = np.eye(spatial_dim)
+    # Get coordinates in spatial grid
+    if len(spatial_shape) == 1:
+        i = point_idx
+        coords = (i,)
+        spatial_dim = 1
     else:
-        spatial_dim = 0
-        g_spatial = np.zeros((0, 0))
+        H, W = spatial_shape
+        i = point_idx // W
+        j = point_idx % W
+        coords = (i, j)
+        spatial_dim = 2
 
-    # Dark (gauge) metric component
-    # Contribution from gauge field φ curvature
+    # Extract parameters at this point
+    mu_c = mu_q[coords]  # (K,)
+    Sigma_c = Sigma_q[coords]  # (K, K)
+
+    # Compute Fisher metric inverse (for Gaussian: g_μμ = Σ^{-1})
+    try:
+        Sigma_inv = np.linalg.inv(Sigma_c)
+    except np.linalg.LinAlgError:
+        # Singular covariance - add regularization
+        Sigma_inv = np.linalg.inv(Sigma_c + 1e-6 * np.eye(len(Sigma_c)))
+
+    # ===================================================================
+    # SPATIAL METRIC: g_spatial_αβ = (∂_α μ)^T Σ^{-1} (∂_β μ)
+    # ===================================================================
+    # This measures how belief mean μ varies with position in base manifold
+    # weighted by the Fisher metric (precision matrix Σ^{-1})
+
+    eps = 1.0  # Grid spacing (assuming unit grid)
+    dmu_dc = np.zeros((spatial_dim, K))  # (spatial_dim, K) gradient of μ
+
+    if spatial_dim == 1:
+        # 1D spatial grid
+        if i > 0 and i < S - 1:
+            # Central difference
+            mu_plus = mu_q[i + 1]
+            mu_minus = mu_q[i - 1]
+            dmu_dc[0] = (mu_plus - mu_minus) / (2 * eps)
+        elif i == 0 and S > 1:
+            # Forward difference
+            mu_plus = mu_q[i + 1]
+            dmu_dc[0] = (mu_plus - mu_c) / eps
+        elif i == S - 1 and S > 1:
+            # Backward difference
+            mu_minus = mu_q[i - 1]
+            dmu_dc[0] = (mu_c - mu_minus) / eps
+
+    else:
+        # 2D spatial grid
+        # x-direction (i-direction)
+        if i > 0 and i < H - 1:
+            mu_plus = mu_q[i + 1, j]
+            mu_minus = mu_q[i - 1, j]
+            dmu_dc[0] = (mu_plus - mu_minus) / (2 * eps)
+        elif i == 0 and H > 1:
+            mu_plus = mu_q[i + 1, j]
+            dmu_dc[0] = (mu_plus - mu_c) / eps
+        elif i == H - 1 and H > 1:
+            mu_minus = mu_q[i - 1, j]
+            dmu_dc[0] = (mu_c - mu_minus) / eps
+
+        # y-direction (j-direction)
+        if j > 0 and j < W - 1:
+            mu_plus = mu_q[i, j + 1]
+            mu_minus = mu_q[i, j - 1]
+            dmu_dc[1] = (mu_plus - mu_minus) / (2 * eps)
+        elif j == 0 and W > 1:
+            mu_plus = mu_q[i, j + 1]
+            dmu_dc[1] = (mu_plus - mu_c) / eps
+        elif j == W - 1 and W > 1:
+            mu_minus = mu_q[i, j - 1]
+            dmu_dc[1] = (mu_c - mu_minus) / eps
+
+    # Compute spatial metric: g_αβ = (∂_α μ)^T Σ^{-1} (∂_β μ)
+    # This is the pullback of the Fisher metric to the base manifold
+    g_spatial = dmu_dc @ Sigma_inv @ dmu_dc.T  # (spatial_dim, spatial_dim)
+
+    # ===================================================================
+    # DARK METRIC: Gauge field contribution
+    # ===================================================================
+    # This measures kinetic energy of the gauge field φ
+    # g_dark_αβ = (∂_α φ)^T (∂_β φ)
+
+    g_dark = np.zeros((spatial_dim, spatial_dim))
+
     if include_dark and phi is not None:
-        # φ has shape (*S, 3) for SO(3) gauge group
-        # Dark metric measures how much φ varies spatially
-        g_dark = 0.1 * np.eye(max(spatial_dim, 1))  # Placeholder
-    else:
-        g_dark = np.zeros_like(g_spatial)
+        phi_c = phi[coords]  # (3,) for SO(3)
+        dphi_dc = np.zeros((spatial_dim, len(phi_c)))
 
-    # Internal metric component (Fisher metric on (μ,Σ) space)
+        if spatial_dim == 1:
+            # 1D case
+            if i > 0 and i < S - 1:
+                phi_plus = phi[i + 1]
+                phi_minus = phi[i - 1]
+                dphi_dc[0] = (phi_plus - phi_minus) / (2 * eps)
+            elif i == 0 and S > 1:
+                phi_plus = phi[i + 1]
+                dphi_dc[0] = (phi_plus - phi_c) / eps
+            elif i == S - 1 and S > 1:
+                phi_minus = phi[i - 1]
+                dphi_dc[0] = (phi_c - phi_minus) / eps
+
+        else:
+            # 2D case
+            # x-direction
+            if i > 0 and i < H - 1:
+                phi_plus = phi[i + 1, j]
+                phi_minus = phi[i - 1, j]
+                dphi_dc[0] = (phi_plus - phi_minus) / (2 * eps)
+            elif i == 0 and H > 1:
+                phi_plus = phi[i + 1, j]
+                dphi_dc[0] = (phi_plus - phi_c) / eps
+            elif i == H - 1 and H > 1:
+                phi_minus = phi[i - 1, j]
+                dphi_dc[0] = (phi_c - phi_minus) / eps
+
+            # y-direction
+            if j > 0 and j < W - 1:
+                phi_plus = phi[i, j + 1]
+                phi_minus = phi[i, j - 1]
+                dphi_dc[1] = (phi_plus - phi_minus) / (2 * eps)
+            elif j == 0 and W > 1:
+                phi_plus = phi[i, j + 1]
+                dphi_dc[1] = (phi_plus - phi_c) / eps
+            elif j == W - 1 and W > 1:
+                phi_minus = phi[i, j - 1]
+                dphi_dc[1] = (phi_c - phi_minus) / eps
+
+        # Dark metric: kinetic term for gauge field
+        g_dark = dphi_dc @ dphi_dc.T  # (spatial_dim, spatial_dim)
+
+    # ===================================================================
+    # COMBINE METRICS
+    # ===================================================================
+
+    g_pullback = g_spatial.copy()
+
+    if include_dark:
+        g_pullback += g_dark
+
     if include_internal:
-        # Fisher metric for Gaussian: g_μμ = Σ^{-1}, g_ΣΣ = Tr[Σ^{-1}...Σ^{-1}]
-        # Simplified: just take magnitude
-        g_internal = np.eye(max(spatial_dim, K))
-    else:
-        g_internal = np.zeros((max(spatial_dim, K), max(spatial_dim, K)))
-
-    # Combine (this is simplified - full version needs careful tensor algebra)
-    total_dim = max(spatial_dim, K)
-    g_pullback = np.zeros((total_dim, total_dim))
-
-    # Add components (proper implementation requires projection operators)
-    if spatial_dim > 0:
-        g_pullback[:spatial_dim, :spatial_dim] += g_spatial + g_dark
-
-    # Add small internal contribution
-    g_pullback += 0.01 * g_internal
+        # Add small regularization to avoid degeneracy
+        # This represents "internal" fluctuations at fixed position
+        g_pullback += 0.01 * np.eye(spatial_dim)
 
     return g_pullback
 
