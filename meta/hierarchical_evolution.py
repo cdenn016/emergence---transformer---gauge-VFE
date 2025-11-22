@@ -17,6 +17,8 @@ Date: November 2025
 """
 
 import numpy as np
+import pickle
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -63,6 +65,10 @@ class HierarchicalConfig:
     lr_sigma_p: float = 0.001  # Much smaller than mu!
     lr_phi: float = 0.1
 
+    # Checkpointing
+    checkpoint_dir: Optional[Path] = None
+    checkpoint_interval: int = 100  # Save checkpoint every N steps
+
 
 class HierarchicalEvolutionEngine:
     """
@@ -107,6 +113,11 @@ class HierarchicalEvolutionEngine:
             'updates_applied': [],
             'condensations': []
         }
+
+        # Create checkpoint directory if configured
+        if self.config.checkpoint_dir is not None:
+            self.config.checkpoint_dir = Path(self.config.checkpoint_dir)
+            self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     def evolve_step(self,
                    learning_rate: float = 0.01,
@@ -479,6 +490,12 @@ class HierarchicalEvolutionEngine:
             if verbose and (step % 10 == 0 or metrics['n_condensations'] > 0):
                 self._print_step_summary(metrics)
 
+            # Save checkpoint if configured
+            if (self.config.checkpoint_dir is not None and
+                self.config.checkpoint_interval > 0 and
+                (step + 1) % self.config.checkpoint_interval == 0):
+                self._save_checkpoint(step + 1)
+
         if verbose:
             print(f"\n{'='*70}")
             print("Evolution complete")
@@ -515,6 +532,25 @@ class HierarchicalEvolutionEngine:
             msg += f" ⚡ CONDENSED {metrics['n_condensations']} clusters!"
 
         print(msg)
+
+    def _save_checkpoint(self, step: int):
+        """Save training checkpoint."""
+        checkpoint_path = self.config.checkpoint_dir / f"hierarchical_checkpoint_step_{step}.pkl"
+
+        checkpoint = {
+            'step': step,
+            'step_count': self.step_count,
+            'metrics_history': self.metrics_history,
+            'condensation_history': self.condensation_history,
+            'config': self.config,
+            'system_summary': self.system.summary(),
+            'condensation_events': self.system.condensation_events,
+        }
+
+        with open(checkpoint_path, 'wb') as f:
+            pickle.dump(checkpoint, f)
+
+        print(f"  💾 Saved checkpoint: {checkpoint_path.name}")
 
 
 # =============================================================================
