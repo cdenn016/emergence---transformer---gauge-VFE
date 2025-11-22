@@ -253,7 +253,7 @@ class Trainer:
         print("="*70)
         print(f"Final energy: {final_energies.total:.6f}")
         print(f"Energy reduction: {initial_energies.total - final_energies.total:.6f}")
-       # print(f"Reduction %: {100*(initial_energies.total - final_energies.total)/(initial_energies.total:.2f)}%")
+        print(f"Reduction %: {100*(initial_energies.total - final_energies.total)/initial_energies.total:.2f}%")
         print()
         print("Performance:")
         print(f"  Avg step time: {avg_step_time:.4f}s")
