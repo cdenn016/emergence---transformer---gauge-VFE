@@ -98,5 +98,5 @@ if __name__ == "__main__":
     print("Running simulation with diagnostic logging...\n")
 
     # Import and run simulation
-    import simulation_suite
-    simulation_suite.main()
+    import simulation_runner
+    simulation_runner.main()
